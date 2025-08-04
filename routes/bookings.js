@@ -1,6 +1,3 @@
-# routes/bookings.js
-
-```javascript
 // routes/bookings.js
 // Sistema de agendamentos (Agenda 2.0) - Lunara Afiliados
 // Core do sistema com validações, notificações e integrações
@@ -940,4 +937,3 @@ router.get('/availability/:therapistId', [
 }));
 
 module.exports = router;
-```

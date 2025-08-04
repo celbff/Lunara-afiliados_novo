@@ -1,6 +1,3 @@
-# routes/dashboard.js
-
-```javascript
 // routes/dashboard.js
 // Dashboard integrado - Lunara Afiliados + Agenda 2.0
 // Métricas unificadas para todos os roles
@@ -724,4 +721,3 @@ router.get('/stats', authenticateToken, asyncHandler(async (req, res) => {
 }));
 
 module.exports = router;
-```

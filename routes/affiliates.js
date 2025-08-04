@@ -1,951 +1,815 @@
-# routes/affiliates.js
-
-```javascript
 // routes/affiliates.js
-// Sistema de afiliados - Lunara Afiliados
-// Gestão completa de afiliados, comissões e performance
+// Rotas para afiliados - Lunara Afiliados
 
 const express = require('express');
-const { body, query, param, validationResult } = require('express-validator');
-const moment = require('moment');
+const { body, param, query, validationResult } = require('express-validator');
 
-const { executeQuery, executeTransaction } = require('../config/database');
-const { emailService } = require('../config/email');
-const { logger, logHelpers } = require('../utils/logger');
-const { authenticateToken } = require('./auth');
-const { 
-  asyncHandler, 
-  ValidationError, 
-  NotFoundError,
-  ConflictError,
-  AuthorizationError 
-} = require('../middleware/errorHandler');
+const { pool, transaction } = require('../config/database');
+const { authenticate, authorize } = require('../middleware/auth');
+const logger = require('../utils/logger');
 
 const router = express.Router();
 
-// ===== MIDDLEWARE DE AUTORIZAÇÃO =====
-const authorize = (roles) => {
-  return (req, res, next) => {
-    if (!req.user) {
-      throw new AuthorizationError('Usuário não autenticado');
-    }
-    
-    if (!roles.includes(req.user.role)) {
-      throw new AuthorizationError('Acesso negado para este recurso');
-    }
-    
-    next();
-  };
-};
+// =============================================
+// VALIDAÇÕES
+// =============================================
 
-// ===== VALIDAÇÕES =====
-const createAffiliateValidation = [
-  body('userId').isUUID().withMessage('ID do usuário inválido'),
-  body('commissionRate').optional().isFloat({ min: 0, max: 100 }).withMessage('Taxa de comissão deve estar entre 0 e 100'),
-  body('pixKey').optional().isString().withMessage('Chave PIX inválida'),
-  body('taxDocument').optional().matches(/^\d{11}$|^\d{14}$/).withMessage('CPF/CNPJ inválido'),
-  body('bankDetails').optional().isObject().withMessage('Dados bancários inválidos')
+const affiliateRegistrationValidation = [
+  body('name')
+    .notEmpty()
+    .isLength({ min: 2, max: 100 })
+    .withMessage('Nome deve ter entre 2 e 100 caracteres'),
+  body('email')
+    .isEmail()
+    .normalizeEmail()
+    .withMessage('Email deve ser válido'),
+  body('phone')
+    .matches(/^\(\d{2}\)\s\d{4,5}-\d{4}$/)
+    .withMessage('Telefone deve estar no formato (XX) XXXXX-XXXX'),
+  body('commission_rate')
+    .optional()
+    .isFloat({ min: 1, max: 30 })
+    .withMessage('Taxa de comissão deve estar entre 1% e 30%')
 ];
 
-const updateAffiliateValidation = [
-  param('id').isUUID().withMessage('ID do afiliado inválido'),
-  body('commissionRate').optional().isFloat({ min: 0, max: 100 }).withMessage('Taxa de comissão deve estar entre 0 e 100'),
-  body('pixKey').optional().isString().withMessage('Chave PIX inválida'),
-  body('taxDocument').optional().matches(/^\d{11}$|^\d{14}$/).withMessage('CPF/CNPJ inválido'),
-  body('bankDetails').optional().isObject().withMessage('Dados bancários inválidos'),
-  body('status').optional().isIn(['active', 'inactive', 'suspended', 'pending']).withMessage('Status inválido')
+const profileUpdateValidation = [
+  body('name')
+    .optional()
+    .isLength({ min: 2, max: 100 })
+    .withMessage('Nome deve ter entre 2 e 100 caracteres'),
+  body('phone')
+    .optional()
+    .matches(/^\(\d{2}\)\s\d{4,5}-\d{4}$/)
+    .withMessage('Telefone deve estar no formato (XX) XXXXX-XXXX'),
+  body('pix_key')
+    .optional()
+    .isLength({ max: 255 })
+    .withMessage('Chave PIX inválida'),
+  body('bank_account')
+    .optional()
+    .isObject()
+    .withMessage('Dados bancários devem ser um objeto'),
+  body('marketing_materials')
+    .optional()
+    .isArray()
+    .withMessage('Materiais de marketing devem ser uma lista')
 ];
 
-// ===== FUNÇÕES AUXILIARES =====
+// =============================================
+// ROTAS PÚBLICAS
+// =============================================
 
-// Gerar código único de afiliado
-const generateAffiliateCode = async (baseName) => {
-  const baseCode = baseName.replace(/\s+/g, '').substring(0, 4).toUpperCase();
-  let code = baseCode + Math.floor(1000 + Math.random() * 9000);
-  
-  // Verificar se código já existe
-  let exists = true;
-  let attempts = 0;
-  
-  while (exists && attempts < 10) {
-    const result = await executeQuery(
-      'SELECT id FROM affiliates WHERE affiliate_code = $1',
-      [code]
-    );
-    
-    if (result.rows.length === 0) {
-      exists = false;
-    } else {
-      code = baseCode + Math.floor(1000 + Math.random() * 9000);
-      attempts++;
-    }
-  }
-  
-  if (exists) {
-    throw new ConflictError('Não foi possível gerar código único');
-  }
-  
-  return code;
-};
-
-// Calcular métricas de performance
-const calculateAffiliateMetrics = async (affiliateId, startDate, endDate) => {
-  const metricsQuery = `
-    SELECT 
-      COUNT(b.id) as total_bookings,
-      COUNT(CASE WHEN b.status = 'completed' THEN 1 END) as completed_bookings,
-      COUNT(CASE WHEN b.status = 'cancelled' THEN 1 END) as cancelled_bookings,
-      SUM(CASE WHEN b.status = 'completed' THEN b.total_amount ELSE 0 END) as total_revenue,
-      SUM(CASE WHEN b.status = 'completed' THEN b.affiliate_commission ELSE 0 END) as total_commission,
-      AVG(CASE WHEN b.status = 'completed' THEN b.total_amount END) as avg_booking_value,
-      COUNT(DISTINCT b.client_email) as unique_clients
-    FROM bookings b
-    WHERE b.affiliate_id = $1
-    AND b.created_at >= $2
-    AND b.created_at <= $3
-  `;
-  
-  const result = await executeQuery(metricsQuery, [affiliateId, startDate, endDate]);
-  return result.rows[0];
-};
-
-// Atualizar totais do afiliado
-const updateAffiliateTotals = async (affiliateId) => {
-  const totalsQuery = `
-    UPDATE affiliates SET
-      total_referrals = (
-        SELECT COUNT(*) FROM bookings 
-        WHERE affiliate_id = $1
-      ),
-      total_earnings = (
-        SELECT COALESCE(SUM(affiliate_commission), 0) FROM bookings 
-        WHERE affiliate_id = $1 AND status = 'completed'
-      ),
-      current_balance = (
-        SELECT COALESCE(SUM(affiliate_commission), 0) FROM bookings 
-        WHERE affiliate_id = $1 AND status = 'completed'
-      ) - (
-        SELECT COALESCE(SUM(affiliate_amount), 0) FROM commissions 
-        WHERE affiliate_id = $1 AND status = 'paid'
-      ),
-      updated_at = NOW()
-    WHERE id = $1
-  `;
-  
-  await executeQuery(totalsQuery, [affiliateId]);
-};
-
-// ===== ROTAS =====
-
-// GET /api/affiliates - Listar afiliados
-router.get('/', authenticateToken, authorize(['admin']), [
-  query('page').optional().isInt({ min: 1 }).toInt(),
-  query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
-  query('status').optional().isIn(['active', 'inactive', 'suspended', 'pending']),
-  query('search').optional().isString(),
-  query('sortBy').optional().isIn(['name', 'created_at', 'total_earnings', 'total_referrals']),
-  query('sortOrder').optional().isIn(['asc', 'desc'])
-], asyncHandler(async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    throw new ValidationError('Parâmetros inválidos', errors.array());
-  }
-
-  const {
-    page = 1,
-    limit = 20,
-    status,
-    search,
-    sortBy = 'created_at',
-    sortOrder = 'desc'
-  } = req.query;
-
-  const offset = (page - 1) * limit;
-  
-  // Construir filtros
-  let whereConditions = ['1=1'];
-  let queryParams = [];
-  let paramCount = 0;
-
-  if (status) {
-    whereConditions.push(`a.status = $${++paramCount}`);
-    queryParams.push(status);
-  }
-
-  if (search) {
-    whereConditions.push(`(
-      u.name ILIKE $${++paramCount} OR
-      u.email ILIKE $${++paramCount} OR
-      a.affiliate_code ILIKE $${++paramCount}
-    )`);
-    const searchPattern = `%${search}%`;
-    queryParams.push(searchPattern, searchPattern, searchPattern);
-  }
-
-  const whereClause = whereConditions.join(' AND ');
-  
-  // Mapear campos de ordenação
-  const sortFields = {
-    name: 'u.name',
-    created_at: 'a.created_at',
-    total_earnings: 'a.total_earnings',
-    total_referrals: 'a.total_referrals'
-  };
-  
-  const orderBy = `${sortFields[sortBy]} ${sortOrder.toUpperCase()}`;
-
-  const affiliatesQuery = `
-    SELECT 
-      a.*,
-      u.name,
-      u.email,
-      u.phone,
-      u.is_active as user_active,
-      u.email_verified,
-      u.created_at as user_created_at,
-      COUNT(*) OVER() as total_count
-    FROM affiliates a
-    JOIN users u ON a.user_id = u.id
-    WHERE ${whereClause}
-    ORDER BY ${orderBy}
-    LIMIT $${++paramCount} OFFSET $${++paramCount}
-  `;
-
-  queryParams.push(limit, offset);
-
-  const result = await executeQuery(affiliatesQuery, queryParams);
-  
-  const affiliates = result.rows;
-  const totalCount = affiliates.length > 0 ? parseInt(affiliates[0].total_count) : 0;
-  const totalPages = Math.ceil(totalCount / limit);
-
-  res.json({
-    success: true,
-    data: {
-      affiliates: affiliates.map(affiliate => ({
-        id: affiliate.id,
-        userId: affiliate.user_id,
-        name: affiliate.name,
-        email: affiliate.email,
-        phone: affiliate.phone,
-        affiliateCode: affiliate.affiliate_code,
-        commissionRate: parseFloat(affiliate.commission_rate),
-        totalReferrals: affiliate.total_referrals,
-        totalEarnings: parseFloat(affiliate.total_earnings),
-        currentBalance: parseFloat(affiliate.current_balance),
-        status: affiliate.status,
-        pixKey: affiliate.pix_key,
-        taxDocument: affiliate.tax_document,
-        isActive: affiliate.user_active,
-        emailVerified: affiliate.email_verified,
-        approvedAt: affiliate.approved_at,
-        createdAt: affiliate.created_at,
-        updatedAt: affiliate.updated_at
-      })),
-      pagination: {
-        currentPage: page,
-        totalPages,
-        totalCount,
-        hasNext: page < totalPages,
-        hasPrev: page > 1
-      }
-    }
-  });
-}));
-
-// GET /api/affiliates/:id - Buscar afiliado específico
-router.get('/:id', authenticateToken, [
-  param('id').isUUID().withMessage('ID inválido')
-], asyncHandler(async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    throw new ValidationError('ID inválido');
-  }
-
-  const affiliateId = req.params.id;
-
-  // Verificar autorização
-  if (req.user.role !== 'admin') {
-    // Afiliado só pode ver seus próprios dados
-    if (req.user.role === 'affiliate') {
-      const checkResult = await executeQuery(
-        'SELECT id FROM affiliates WHERE id = $1 AND user_id = $2',
-        [affiliateId, req.user.id]
-      );
-      
-      if (checkResult.rows.length === 0) {
-        throw new AuthorizationError('Acesso negado');
-      }
-    } else {
-      throw new AuthorizationError('Acesso negado');
-    }
-  }
-
-  // Buscar dados do afiliado
-  const affiliateQuery = `
-    SELECT 
-      a.*,
-      u.name,
-      u.email,
-      u.phone,
-      u.is_active as user_active,
-      u.email_verified,
-      u.last_login,
-      u.created_at as user_created_at,
-      approver.name as approved_by_name
-    FROM affiliates a
-    JOIN users u ON a.user_id = u.id
-    LEFT JOIN users approver ON a.approved_by = approver.id
-    WHERE a.id = $1
-  `;
-
-  const result = await executeQuery(affiliateQuery, [affiliateId]);
-  
-  if (result.rows.length === 0) {
-    throw new NotFoundError('Afiliado não encontrado');
-  }
-
-  const affiliate = result.rows[0];
-
-  // Buscar métricas dos últimos 30 dias
-  const endDate = moment().endOf('day');
-  const startDate = moment().subtract(30, 'days').startOf('day');
-  const metrics = await calculateAffiliateMetrics(affiliateId, startDate, endDate);
-
-  // Buscar últimos agendamentos
-  const recentBookingsQuery = `
-    SELECT 
-      b.id,
-      b.client_name,
-      b.client_email,
-      b.scheduled_date,
-      b.scheduled_time,
-      b.status,
-      b.total_amount,
-      b.affiliate_commission,
-      b.created_at,
-      s.name as service_name,
-      u_therapist.name as therapist_name
-    FROM bookings b
-    JOIN services s ON b.service_id = s.id
-    JOIN therapists t ON b.therapist_id = t.id
-    JOIN users u_therapist ON t.user_id = u_therapist.id
-    WHERE b.affiliate_id = $1
-    ORDER BY b.created_at DESC
-    LIMIT 10
-  `;
-
-  const bookingsResult = await executeQuery(recentBookingsQuery, [affiliateId]);
-
-  const affiliateData = {
-    id: affiliate.id,
-    userId: affiliate.user_id,
-    name: affiliate.name,
-    email: affiliate.email,
-    phone: affiliate.phone,
-    affiliateCode: affiliate.affiliate_code,
-    commissionRate: parseFloat(affiliate.commission_rate),
-    totalReferrals: affiliate.total_referrals,
-    totalEarnings: parseFloat(affiliate.total_earnings),
-    currentBalance: parseFloat(affiliate.current_balance),
-    status: affiliate.status,
-    pixKey: affiliate.pix_key,
-    taxDocument: affiliate.tax_document,
-    bankDetails: affiliate.bank_details,
-    paymentInfo: affiliate.payment_info,
-    address: affiliate.address,
-    performanceMetrics: affiliate.performance_metrics,
-    notes: affiliate.notes,
-    isActive: affiliate.user_active,
-    emailVerified: affiliate.email_verified,
-    lastLogin: affiliate.last_login,
-    approvedAt: affiliate.approved_at,
-    approvedBy: affiliate.approved_by_name,
-    createdAt: affiliate.created_at,
-    updatedAt: affiliate.updated_at,
-    metrics: {
-      ...metrics,
-      totalRevenue: parseFloat(metrics.total_revenue) || 0,
-      totalCommission: parseFloat(metrics.total_commission) || 0,
-      avgBookingValue: parseFloat(metrics.avg_booking_value) || 0,
-      conversionRate: metrics.total_bookings > 0 
-        ? ((metrics.completed_bookings / metrics.total_bookings) * 100).toFixed(2)
-        : 0
-    },
-    recentBookings: bookingsResult.rows
-  };
-
-  res.json({
-    success: true,
-    data: { affiliate: affiliateData }
-  });
-}));
-
-// POST /api/affiliates - Criar novo afiliado
-router.post('/', authenticateToken, authorize(['admin']), createAffiliateValidation, asyncHandler(async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    throw new ValidationError('Dados inválidos', errors.array());
-  }
-
-  const {
-    userId,
-    commissionRate,
-    pixKey,
-    taxDocument,
-    bankDetails,
-    address,
-    notes
-  } = req.body;
-
-  // Verificar se usuário existe e não é afiliado ainda
-  const userResult = await executeQuery(`
-    SELECT u.*, a.id as affiliate_id
-    FROM users u
-    LEFT JOIN affiliates a ON u.id = a.user_id
-    WHERE u.id = $1
-  `, [userId]);
-
-  if (userResult.rows.length === 0) {
-    throw new NotFoundError('Usuário não encontrado');
-  }
-
-  const user = userResult.rows[0];
-
-  if (user.affiliate_id) {
-    throw new ConflictError('Usuário já é afiliado');
-  }
-
-  // Gerar código de afiliado
-  const affiliateCode = await generateAffiliateCode(user.name);
-
-  // Buscar taxa de comissão padrão se não informada
-  let finalCommissionRate = commissionRate;
-  if (!finalCommissionRate) {
-    const settingsResult = await executeQuery(`
-      SELECT value FROM settings WHERE key = 'default_commission_rate'
-    `);
-    finalCommissionRate = parseFloat(settingsResult.rows[0]?.value) || 20.00;
-  }
-
-  // Criar afiliado
-  const createQuery = `
-    INSERT INTO affiliates (
-      user_id, affiliate_code, commission_rate, pix_key, 
-      tax_document, bank_details, address, notes,
-      status, approved_at, approved_by
-    ) VALUES (
-      $1, $2, $3, $4, $5, $6, $7, $8, 'active', NOW(), $9
-    ) RETURNING id
-  `;
-
-  const createParams = [
-    userId,
-    affiliateCode,
-    finalCommissionRate,
-    pixKey || null,
-    taxDocument || null,
-    bankDetails ? JSON.stringify(bankDetails) : null,
-    address ? JSON.stringify(address) : null,
-    notes || null,
-    req.user.id
-  ];
-
-  const result = await executeQuery(createQuery, createParams);
-  const affiliateId = result.rows[0].id;
-
-  // Atualizar role do usuário
-  await executeQuery(
-    'UPDATE users SET role = $1, updated_at = NOW() WHERE id = $2',
-    ['affiliate', userId]
-  );
-
-  // Buscar afiliado criado
-  const newAffiliateResult = await executeQuery(`
-    SELECT 
-      a.*,
-      u.name,
-      u.email,
-      u.phone
-    FROM affiliates a
-    JOIN users u ON a.user_id = u.id
-    WHERE a.id = $1
-  `, [affiliateId]);
-
-  const newAffiliate = newAffiliateResult.rows[0];
-
-  // Enviar email de boas-vindas
+// POST /api/affiliates/register - Registro de novo afiliado
+router.post('/register', affiliateRegistrationValidation, async (req, res, next) => {
   try {
-    await emailService.sendWelcomeEmail(user.email, {
-      name: user.name,
-      role: 'affiliate',
-      affiliateCode,
-      loginUrl: `${process.env.FRONTEND_URL}/login`
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Dados inválidos',
+        errors: errors.array()
+      });
+    }
+
+    const { name, email, phone, commission_rate = 10 } = req.body;
+
+    // Verificar se email já existe
+    const existingUser = await pool.query(
+      'SELECT id FROM users WHERE email = $1',
+      [email]
+    );
+
+    if (existingUser.rows.length > 0) {
+      return res.status(409).json({
+        success: false,
+        message: 'Este email já está cadastrado'
+      });
+    }
+
+    const result = await transaction(async (client) => {
+      // Criar usuário
+      const userResult = await client.query(`
+        INSERT INTO users (name, email, phone, role, status, password_hash)
+        VALUES ($1, $2, $3, 'afiliado', 'pendente', 'TEMP_HASH')
+        RETURNING id, name, email, phone, role, status, created_at
+      `, [name, email, phone]);
+
+      const user = userResult.rows[0];
+
+      // Gerar código de afiliado único
+      let affiliateCode;
+      let isUnique = false;
+      let attempts = 0;
+
+      while (!isUnique && attempts < 10) {
+        affiliateCode = `LUN${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
+        
+        const existingCode = await client.query(
+          'SELECT id FROM affiliates WHERE affiliate_code = $1',
+          [affiliateCode]
+        );
+
+        if (existingCode.rows.length === 0) {
+          isUnique = true;
+        }
+        attempts++;
+      }
+
+      if (!isUnique) {
+        throw new Error('Erro ao gerar código de afiliado único');
+      }
+
+      // Criar registro de afiliado
+      const affiliateResult = await client.query(`
+        INSERT INTO affiliates (
+          user_id, 
+          affiliate_code, 
+          commission_rate, 
+          status,
+          total_earnings,
+          total_referrals
+        )
+        VALUES ($1, $2, $3, 'ativo', 0, 0)
+        RETURNING *
+      `, [user.id, affiliateCode, commission_rate]);
+
+      const affiliate = affiliateResult.rows[0];
+
+      // Criar perfil básico
+      await client.query(`
+        INSERT INTO profiles (user_id, bio)
+        VALUES ($1, 'Afiliado Lunara')
+      `, [user.id]);
+
+      return {
+        user,
+        affiliate
+      };
     });
+
+    logger.info(`Novo afiliado registrado: ${email} - Código: ${result.affiliate.affiliate_code}`);
+
+    res.status(201).json({
+      success: true,
+      message: 'Afiliado registrado com sucesso! Verifique seu email para ativar a conta.',
+      data: {
+        id: result.user.id,
+        name: result.user.name,
+        email: result.user.email,
+        affiliate_code: result.affiliate.affiliate_code,
+        commission_rate: result.affiliate.commission_rate,
+        status: result.user.status
+      }
+    });
+
   } catch (error) {
-    logger.warn('Erro ao enviar email de boas-vindas:', error);
+    next(error);
   }
+});
 
-  // Log da ação
-  logHelpers.audit('CREATE_AFFILIATE', {
-    affiliateId,
-    userId,
-    affiliateCode,
-    commissionRate: finalCommissionRate,
-    createdBy: req.user.email
-  });
+// =============================================
+// ROTAS AUTENTICADAS
+// =============================================
 
-  res.status(201).json({
-    success: true,
-    message: 'Afiliado criado com sucesso',
-    data: {
-      affiliate: {
-        id: newAffiliate.id,
-        userId: newAffiliate.user_id,
-        name: newAffiliate.name,
-        email: newAffiliate.email,
-        phone: newAffiliate.phone,
-        affiliateCode: newAffiliate.affiliate_code,
-        commissionRate: parseFloat(newAffiliate.commission_rate),
-        status: newAffiliate.status,
-        createdAt: newAffiliate.created_at
-      }
+// GET /api/affiliates - Listar afiliados (admin apenas)
+router.get('/', authenticate, authorize(['admin']), async (req, res, next) => {
+  try {
+    const {
+      page = 1,
+      limit = 20,
+      search = '',
+      status = '',
+      sort = 'created_at',
+      order = 'desc'
+    } = req.query;
+
+    const offset = (page - 1) * limit;
+
+    // Construir query
+    let baseQuery = `
+      SELECT 
+        u.id,
+        u.name,
+        u.email,
+        u.phone,
+        u.status as user_status,
+        u.created_at,
+        a.affiliate_code,
+        a.commission_rate,
+        a.total_earnings,
+        a.total_referrals,
+        a.status as affiliate_status
+      FROM users u
+      INNER JOIN affiliates a ON u.id = a.user_id
+      WHERE u.role = 'afiliado'
+    `;
+
+    let countQuery = `
+      SELECT COUNT(*) as total
+      FROM users u
+      INNER JOIN affiliates a ON u.id = a.user_id
+      WHERE u.role = 'afiliado'
+    `;
+
+    let queryParams = [];
+    let paramIndex = 1;
+
+    // Filtros
+    if (search) {
+      const searchCondition = ` AND (u.name ILIKE $${paramIndex} OR u.email ILIKE $${paramIndex} OR a.affiliate_code ILIKE $${paramIndex})`;
+      baseQuery += searchCondition;
+      countQuery += searchCondition;
+      queryParams.push(`%${search}%`);
+      paramIndex++;
     }
-  });
-}));
 
-// PUT /api/affiliates/:id - Atualizar afiliado
-router.put('/:id', authenticateToken, updateAffiliateValidation, asyncHandler(async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    throw new ValidationError('Dados inválidos', errors.array());
-  }
-
-  const affiliateId = req.params.id;
-  const updates = req.body;
-
-  // Verificar se afiliado existe
-  const affiliateResult = await executeQuery(
-    'SELECT * FROM affiliates WHERE id = $1',
-    [affiliateId]
-  );
-
-  if (affiliateResult.rows.length === 0) {
-    throw new NotFoundError('Afiliado não encontrado');
-  }
-
-  const currentAffiliate = affiliateResult.rows[0];
-
-  // Verificar autorização
-  if (req.user.role !== 'admin') {
-    if (req.user.role === 'affiliate' && currentAffiliate.user_id !== req.user.id) {
-      throw new AuthorizationError('Acesso negado');
+    if (status) {
+      const statusCondition = ` AND u.status = $${paramIndex}`;
+      baseQuery += statusCondition;
+      countQuery += statusCondition;
+      queryParams.push(status);
+      paramIndex++;
     }
+
+    // Ordenação
+    const validSortFields = {
+      name: 'u.name',
+      email: 'u.email',
+      created_at: 'u.created_at',
+      total_earnings: 'a.total_earnings',
+      total_referrals: 'a.total_referrals',
+      commission_rate: 'a.commission_rate'
+    };
+
+    const sortField = validSortFields[sort] || 'u.created_at';
+    const sortOrder = order.toLowerCase() === 'desc' ? 'DESC' : 'ASC';
+
+    baseQuery += ` ORDER BY ${sortField} ${sortOrder}`;
+    baseQuery += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
     
-    // Afiliados não podem alterar status ou taxa de comissão
-    if (req.user.role === 'affiliate') {
-      delete updates.status;
-      delete updates.commissionRate;
-    }
+    const finalParams = [...queryParams, limit, offset];
+
+    // Executar queries
+    const [affiliatesResult, countResult] = await Promise.all([
+      pool.query(baseQuery, finalParams),
+      pool.query(countQuery, queryParams)
+    ]);
+
+    const affiliates = affiliatesResult.rows;
+    const total = parseInt(countResult.rows[0].total);
+    const totalPages = Math.ceil(total / limit);
+
+    res.json({
+      success: true,
+      data: {
+        affiliates,
+        pagination: {
+          current: parseInt(page),
+          total,
+          totalPages,
+          hasNext: page < totalPages,
+          hasPrev: page > 1
+        }
+      }
+    });
+
+  } catch (error) {
+    next(error);
   }
+});
 
-  // Construir query de update
-  const updateFields = [];
-  const updateParams = [];
-  let paramCount = 0;
+// GET /api/affiliates/:id - Obter afiliado específico
+router.get('/:id', authenticate, param('id').isInt(), async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID inválido',
+        errors: errors.array()
+      });
+    }
 
-  const allowedFields = {
-    commissionRate: 'commission_rate',
-    pixKey: 'pix_key',
-    taxDocument: 'tax_document',
-    bankDetails: 'bank_details',
-    address: 'address',
-    notes: 'notes',
-    status: 'status'
-  };
+    const { id } = req.params;
 
-  Object.keys(updates).forEach(key => {
-    if (allowedFields[key] && updates[key] !== undefined) {
-      const dbField = allowedFields[key];
-      updateFields.push(`${dbField} = $${++paramCount}`);
+    // Verificar permissão (próprio afiliado ou admin)
+    if (req.user.role !== 'admin' && req.user.id != id) {
+      return res.status(403).json({
+        success: false,
+        message: 'Acesso negado'
+      });
+    }
+
+    // Buscar afiliado
+    const affiliateResult = await pool.query(`
+      SELECT 
+        u.id,
+        u.name,
+        u.email,
+        u.phone,
+        u.status as user_status,
+        u.created_at,
+        u.updated_at,
+        u.last_login,
+        a.affiliate_code,
+        a.commission_rate,
+        a.total_earnings,
+        a.total_referrals,
+        a.status as affiliate_status,
+        a.pix_key,
+        a.bank_account,
+        a.marketing_materials,
+        p.bio
+      FROM users u
+      INNER JOIN affiliates a ON u.id = a.user_id
+      LEFT JOIN profiles p ON u.id = p.user_id
+      WHERE u.id = $1 AND u.role = 'afiliado'
+    `, [id]);
+
+    if (affiliateResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Afiliado não encontrado'
+      });
+    }
+
+    const affiliate = affiliateResult.rows[0];
+
+    // Buscar estatísticas recentes
+    const statsResult = await pool.query(`
+      SELECT 
+        COUNT(c.id) as total_commissions,
+        COUNT(CASE WHEN c.status = 'pending' THEN 1 END) as pending_commissions,
+        COUNT(CASE WHEN c.status = 'paid' THEN 1 END) as paid_commissions,
+        COALESCE(SUM(CASE WHEN c.status = 'paid' THEN c.amount ELSE 0 END), 0) as total_paid,
+        COALESCE(SUM(CASE WHEN c.status = 'pending' THEN c.amount ELSE 0 END), 0) as pending_amount,
+        COALESCE(SUM(CASE WHEN c.created_at >= DATE_TRUNC('month', CURRENT_DATE) THEN c.amount ELSE 0 END), 0) as this_month_earnings
+      FROM commissions c
+      WHERE c.affiliate_id = $1
+    `, [id]);
+
+    const stats = statsResult.rows[0];
+
+    res.json({
+      success: true,
+      data: {
+        ...affiliate,
+        stats: {
+          total_commissions: parseInt(stats.total_commissions) || 0,
+          pending_commissions: parseInt(stats.pending_commissions) || 0,
+          paid_commissions: parseInt(stats.paid_commissions) || 0,
+          total_paid: parseFloat(stats.total_paid) || 0,
+          pending_amount: parseFloat(stats.pending_amount) || 0,
+          this_month_earnings: parseFloat(stats.this_month_earnings) || 0
+        }
+      }
+    });
+
+  } catch (error) {
+    next(error);
+  }
+});
+
+// PUT /api/affiliates/profile - Atualizar perfil do afiliado
+router.put('/profile', authenticate, authorize(['afiliado']), profileUpdateValidation, async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Dados inválidos',
+        errors: errors.array()
+      });
+    }
+
+    const userId = req.user.id;
+    const updateData = req.body;
+
+    const result = await transaction(async (client) => {
+      // Atualizar dados do usuário se necessário
+      const userFields = [];
+      const userValues = [];
+      let userParamIndex = 1;
+
+      const allowedUserFields = ['name', 'phone'];
       
-      if (key === 'bankDetails' || key === 'address') {
-        updateParams.push(JSON.stringify(updates[key]));
-      } else {
-        updateParams.push(updates[key]);
+      Object.keys(updateData).forEach(key => {
+        if (allowedUserFields.includes(key) && updateData[key] !== undefined) {
+          userFields.push(`${key} = $${userParamIndex}`);
+          userValues.push(updateData[key]);
+          userParamIndex++;
+        }
+      });
+
+      if (userFields.length > 0) {
+        userFields.push(`updated_at = NOW()`);
+        
+        const userUpdateQuery = `
+          UPDATE users 
+          SET ${userFields.join(', ')}
+          WHERE id = $${userParamIndex}
+        `;
+        userValues.push(userId);
+
+        await client.query(userUpdateQuery, userValues);
       }
-    }
-  });
 
-  if (updateFields.length === 0) {
-    throw new ValidationError('Nenhum campo válido para atualização');
-  }
+      // Atualizar dados do afiliado
+      const affiliateFields = [];
+      const affiliateValues = [];
+      let affiliateParamIndex = 1;
 
-  updateFields.push(`updated_at = $${++paramCount}`);
-  updateParams.push(new Date());
-  updateParams.push(affiliateId);
-
-  const updateQuery = `
-    UPDATE affiliates 
-    SET ${updateFields.join(', ')}
-    WHERE id = $${++paramCount}
-    RETURNING *
-  `;
-
-  await executeQuery(updateQuery, updateParams);
-
-  // Se status mudou para 'active', atualizar data de aprovação
-  if (updates.status === 'active' && currentAffiliate.status !== 'active') {
-    await executeQuery(`
-      UPDATE affiliates 
-      SET approved_at = NOW(), approved_by = $1
-      WHERE id = $2
-    `, [req.user.id, affiliateId]);
-  }
-
-  // Buscar afiliado atualizado
-  const updatedResult = await executeQuery(`
-    SELECT 
-      a.*,
-      u.name,
-      u.email,
-      u.phone
-    FROM affiliates a
-    JOIN users u ON a.user_id = u.id
-    WHERE a.id = $1
-  `, [affiliateId]);
-
-  const updatedAffiliate = updatedResult.rows[0];
-
-  // Log da ação
-  logHelpers.audit('UPDATE_AFFILIATE', {
-    affiliateId,
-    changes: updates,
-    updatedBy: req.user.email
-  });
-
-  res.json({
-    success: true,
-    message: 'Afiliado atualizado com sucesso',
-    data: {
-      affiliate: {
-        id: updatedAffiliate.id,
-        userId: updatedAffiliate.user_id,
-        name: updatedAffiliate.name,
-        email: updatedAffiliate.email,
-        phone: updatedAffiliate.phone,
-        affiliateCode: updatedAffiliate.affiliate_code,
-        commissionRate: parseFloat(updatedAffiliate.commission_rate),
-        totalReferrals: updatedAffiliate.total_referrals,
-        totalEarnings: parseFloat(updatedAffiliate.total_earnings),
-        currentBalance: parseFloat(updatedAffiliate.current_balance),
-        status: updatedAffiliate.status,
-        pixKey: updatedAffiliate.pix_key,
-        taxDocument: updatedAffiliate.tax_document,
-        bankDetails: updatedAffiliate.bank_details,
-        address: updatedAffiliate.address,
-        notes: updatedAffiliate.notes,
-        updatedAt: updatedAffiliate.updated_at
-      }
-    }
-  });
-}));
-
-// GET /api/affiliates/:id/bookings - Agendamentos do afiliado
-router.get('/:id/bookings', authenticateToken, [
-  param('id').isUUID().withMessage('ID do afiliado inválido'),
-  query('page').optional().isInt({ min: 1 }).toInt(),
-  query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
-  query('status').optional().isIn(['pending', 'confirmed', 'cancelled', 'completed', 'no_show']),
-  query('dateFrom').optional().isISO8601(),
-  query('dateTo').optional().isISO8601()
-], asyncHandler(async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    throw new ValidationError('Parâmetros inválidos', errors.array());
-  }
-
-  const affiliateId = req.params.id;
-  const {
-    page = 1,
-    limit = 20,
-    status,
-    dateFrom,
-    dateTo
-  } = req.query;
-
-  // Verificar autorização
-  if (req.user.role !== 'admin') {
-    if (req.user.role === 'affiliate') {
-      const checkResult = await executeQuery(
-        'SELECT id FROM affiliates WHERE id = $1 AND user_id = $2',
-        [affiliateId, req.user.id]
-      );
+      const allowedAffiliateFields = ['pix_key', 'bank_account', 'marketing_materials'];
       
-      if (checkResult.rows.length === 0) {
-        throw new AuthorizationError('Acesso negado');
+      Object.keys(updateData).forEach(key => {
+        if (allowedAffiliateFields.includes(key) && updateData[key] !== undefined) {
+          affiliateFields.push(`${key} = $${affiliateParamIndex}`);
+          
+          if (key === 'bank_account' || key === 'marketing_materials') {
+            affiliateValues.push(JSON.stringify(updateData[key]));
+          } else {
+            affiliateValues.push(updateData[key]);
+          }
+          affiliateParamIndex++;
+        }
+      });
+
+      if (affiliateFields.length > 0) {
+        const affiliateUpdateQuery = `
+          UPDATE affiliates 
+          SET ${affiliateFields.join(', ')}
+          WHERE user_id = $${affiliateParamIndex}
+        `;
+        affiliateValues.push(userId);
+
+        await client.query(affiliateUpdateQuery, affiliateValues);
       }
-    } else {
-      throw new AuthorizationError('Acesso negado');
+
+      // Buscar dados atualizados
+      const updatedResult = await client.query(`
+        SELECT 
+          u.id,
+          u.name,
+          u.email,
+          u.phone,
+          u.updated_at,
+          a.affiliate_code,
+          a.commission_rate,
+          a.pix_key,
+          a.bank_account,
+          a.marketing_materials
+        FROM users u
+        INNER JOIN affiliates a ON u.id = a.user_id
+        WHERE u.id = $1
+      `, [userId]);
+
+      return updatedResult.rows[0];
+    });
+
+    logger.info(`Perfil de afiliado atualizado: ${req.user.email}`);
+
+    res.json({
+      success: true,
+      message: 'Perfil atualizado com sucesso',
+      data: result
+    });
+
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/affiliates/:id/commissions - Obter comissões do afiliado
+router.get('/:id/commissions', authenticate, param('id').isInt(), async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID inválido',
+        errors: errors.array()
+      });
     }
-  }
 
-  const offset = (page - 1) * limit;
-  
-  // Construir filtros
-  let whereConditions = ['b.affiliate_id = $1'];
-  let queryParams = [affiliateId];
-  let paramCount = 1;
+    const { id } = req.params;
+    const {
+      page = 1,
+      limit = 20,
+      status = '',
+      date_from = '',
+      date_to = '',
+      sort = 'created_at',
+      order = 'desc'
+    } = req.query;
 
-  if (status) {
-    whereConditions.push(`b.status = $${++paramCount}`);
-    queryParams.push(status);
-  }
-
-  if (dateFrom) {
-    whereConditions.push(`b.scheduled_date >= $${++paramCount}`);
-    queryParams.push(dateFrom);
-  }
-
-  if (dateTo) {
-    whereConditions.push(`b.scheduled_date <= $${++paramCount}`);
-    queryParams.push(dateTo);
-  }
-
-  const whereClause = whereConditions.join(' AND ');
-
-  const bookingsQuery = `
-    SELECT 
-      b.*,
-      s.name as service_name,
-      s.duration as service_duration,
-      s.category as service_category,
-      u_therapist.name as therapist_name,
-      t.specialty as therapist_specialty,
-      COUNT(*) OVER() as total_count
-    FROM bookings b
-    JOIN services s ON b.service_id = s.id
-    JOIN therapists t ON b.therapist_id = t.id
-    JOIN users u_therapist ON t.user_id = u_therapist.id
-    WHERE ${whereClause}
-    ORDER BY b.scheduled_date DESC, b.scheduled_time DESC
-    LIMIT $${++paramCount} OFFSET $${++paramCount}
-  `;
-
-  queryParams.push(limit, offset);
-
-  const result = await executeQuery(bookingsQuery, queryParams);
-  
-  const bookings = result.rows;
-  const totalCount = bookings.length > 0 ? parseInt(bookings[0].total_count) : 0;
-  const totalPages = Math.ceil(totalCount / limit);
-
-  res.json({
-    success: true,
-    data: {
-      bookings: bookings.map(booking => ({
-        id: booking.id,
-        serviceName: booking.service_name,
-        serviceDuration: booking.service_duration,
-        serviceCategory: booking.service_category,
-        therapistName: booking.therapist_name,
-        therapistSpecialty: booking.therapist_specialty,
-        clientName: booking.client_name,
-        clientEmail: booking.client_email,
-        scheduledDate: booking.scheduled_date,
-        scheduledTime: booking.scheduled_time,
-        status: booking.status,
-        paymentStatus: booking.payment_status,
-        totalAmount: parseFloat(booking.total_amount),
-        affiliateCommission: parseFloat(booking.affiliate_commission),
-        createdAt: booking.created_at
-      })),
-      pagination: {
-        currentPage: page,
-        totalPages,
-        totalCount,
-        hasNext: page < totalPages,
-        hasPrev: page > 1
-      }
+    // Verificar permissão
+    if (req.user.role !== 'admin' && req.user.id != id) {
+      return res.status(403).json({
+        success: false,
+        message: 'Acesso negado'
+      });
     }
-  });
-}));
 
-// GET /api/affiliates/:id/metrics - Métricas do afiliado
-router.get('/:id/metrics', authenticateToken, [
-  param('id').isUUID().withMessage('ID do afiliado inválido'),
-  query('period').optional().isIn(['7d', '30d', '90d', '6m', '1y']),
-  query('dateFrom').optional().isISO8601(),
-  query('dateTo').optional().isISO8601()
-], asyncHandler(async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    throw new ValidationError('Parâmetros inválidos', errors.array());
-  }
+    const offset = (page - 1) * limit;
 
-  const affiliateId = req.params.id;
-  const { period = '30d', dateFrom, dateTo } = req.query;
+    // Construir query
+    let baseQuery = `
+      SELECT 
+        c.*,
+        a.appointment_date,
+        a.appointment_time,
+        a.type as appointment_type,
+        a.price as appointment_price,
+        u_patient.name as patient_name,
+        u_therapist.name as therapist_name
+      FROM commissions c
+      LEFT JOIN appointments a ON c.appointment_id = a.id
+      LEFT JOIN users u_patient ON a.patient_id = u_patient.id
+      LEFT JOIN users u_therapist ON a.therapist_id = u_therapist.id
+      WHERE c.affiliate_id = $1
+    `;
 
-  // Verificar autorização
-  if (req.user.role !== 'admin') {
-    if (req.user.role === 'affiliate') {
-      const checkResult = await executeQuery(
-        'SELECT id FROM affiliates WHERE id = $1 AND user_id = $2',
-        [affiliateId, req.user.id]
-      );
-      
-      if (checkResult.rows.length === 0) {
-        throw new AuthorizationError('Acesso negado');
-      }
-    } else {
-      throw new AuthorizationError('Acesso negado');
+    let countQuery = `
+      SELECT COUNT(*) as total
+      FROM commissions c
+      WHERE c.affiliate_id = $1
+    `;
+
+    let queryParams = [id];
+    let paramIndex = 2;
+
+    // Filtros
+    if (status) {
+      const statusCondition = ` AND c.status = $${paramIndex}`;
+      baseQuery += statusCondition;
+      countQuery += statusCondition;
+      queryParams.push(status);
+      paramIndex++;
     }
-  }
 
-  // Definir datas
-  let startDate, endDate;
-  
-  if (dateFrom && dateTo) {
-    startDate = moment(dateFrom).startOf('day');
-    endDate = moment(dateTo).endOf('day');
-  } else {
-    endDate = moment().endOf('day');
+    if (date_from) {
+      const dateFromCondition = ` AND c.created_at >= $${paramIndex}`;
+      baseQuery += dateFromCondition;
+      countQuery += dateFromCondition;
+      queryParams.push(date_from);
+      paramIndex++;
+    }
+
+    if (date_to) {
+      const dateToCondition = ` AND c.created_at <= $${paramIndex}`;
+      baseQuery += dateToCondition;
+      countQuery += dateToCondition;
+      queryParams.push(date_to);
+      paramIndex++;
+    }
+
+    // Ordenação
+    const validSortFields = {
+      created_at: 'c.created_at',
+      amount: 'c.amount',
+      status: 'c.status',
+      appointment_date: 'a.appointment_date'
+    };
+
+    const sortField = validSortFields[sort] || 'c.created_at';
+    const sortOrder = order.toLowerCase() === 'desc' ? 'DESC' : 'ASC';
+
+    baseQuery += ` ORDER BY ${sortField} ${sortOrder}`;
+    baseQuery += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
     
-    switch (period) {
-      case '7d':
-        startDate = moment().subtract(7, 'days').startOf('day');
-        break;
-      case '30d':
-        startDate = moment().subtract(30, 'days').startOf('day');
-        break;
-      case '90d':
-        startDate = moment().subtract(90, 'days').startOf('day');
-        break;
-      case '6m':
-        startDate = moment().subtract(6, 'months').startOf('day');
-        break;
-      case '1y':
-        startDate = moment().subtract(1, 'year').startOf('day');
-        break;
-      default:
-        startDate = moment().subtract(30, 'days').startOf('day');
+    const finalParams = [...queryParams, limit, offset];
+
+    // Executar queries
+    const [commissionsResult, countResult] = await Promise.all([
+      pool.query(baseQuery, finalParams),
+      pool.query(countQuery, queryParams)
+    ]);
+
+    const commissions = commissionsResult.rows;
+    const total = parseInt(countResult.rows[0].total);
+    const totalPages = Math.ceil(total / limit);
+
+    res.json({
+      success: true,
+      data: {
+        commissions,
+        pagination: {
+          current: parseInt(page),
+          total,
+          totalPages,
+          hasNext: page < totalPages,
+          hasPrev: page > 1
+        }
+      }
+    });
+
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/affiliates/:id/stats - Obter estatísticas do afiliado
+router.get('/:id/stats', authenticate, param('id').isInt(), async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID inválido',
+        errors: errors.array()
+      });
     }
-  }
 
-  // Buscar métricas
-  const metrics = await calculateAffiliateMetrics(affiliateId, startDate, endDate);
+    const { id } = req.params;
+    const {
+      period = '30', // dias
+      year = new Date().getFullYear(),
+      month = new Date().getMonth() + 1
+    } = req.query;
 
-  // Buscar dados de evolução temporal
-  const timeSeriesQuery = `
-    SELECT 
-      DATE_TRUNC('day', b.created_at) as date,
-      COUNT(b.id) as bookings,
-      COUNT(CASE WHEN b.status = 'completed' THEN 1 END) as completed,
-      SUM(CASE WHEN b.status = 'completed' THEN b.total_amount ELSE 0 END) as revenue,
-      SUM(CASE WHEN b.status = 'completed' THEN b.affiliate_commission ELSE 0 END) as commission
-    FROM bookings b
-    WHERE b.affiliate_id = $1
-    AND b.created_at >= $2
-    AND b.created_at <= $3
-    GROUP BY DATE_TRUNC('day', b.created_at)
-    ORDER BY date
-  `;
-
-  const timeSeriesResult = await executeQuery(timeSeriesQuery, [affiliateId, startDate, endDate]);
-
-  // Buscar top serviços
-  const topServicesQuery = `
-    SELECT 
-      s.name,
-      s.category,
-      COUNT(b.id) as bookings_count,
-      SUM(CASE WHEN b.status = 'completed' THEN b.total_amount ELSE 0 END) as total_revenue,
-      SUM(CASE WHEN b.status = 'completed' THEN b.affiliate_commission ELSE 0 END) as total_commission
-    FROM bookings b
-    JOIN services s ON b.service_id = s.id
-    WHERE b.affiliate_id = $1
-    AND b.created_at >= $2
-    AND b.created_at <= $3
-    GROUP BY s.id, s.name, s.category
-    ORDER BY bookings_count DESC
-    LIMIT 10
-  `;
-
-  const topServicesResult = await executeQuery(topServicesQuery, [affiliateId, startDate, endDate]);
-
-  res.json({
-    success: true,
-    data: {
-      period: {
-        start: startDate.format(),
-        end: endDate.format(),
-        days: endDate.diff(startDate, 'days') + 1
-      },
-      summary: {
-        totalBookings: parseInt(metrics.total_bookings) || 0,
-        completedBookings: parseInt(metrics.completed_bookings) || 0,
-        cancelledBookings: parseInt(metrics.cancelled_bookings) || 0,
-        totalRevenue: parseFloat(metrics.total_revenue) || 0,
-        totalCommission: parseFloat(metrics.total_commission) || 0,
-        avgBookingValue: parseFloat(metrics.avg_booking_value) || 0,
-        uniqueClients: parseInt(metrics.unique_clients) || 0,
-        conversionRate: metrics.total_bookings > 0 
-          ? ((metrics.completed_bookings / metrics.total_bookings) * 100).toFixed(2)
-          : 0
-      },
-      timeSeries: timeSeriesResult.rows.map(row => ({
-        date: row.date,
-        bookings: parseInt(row.bookings),
-        completed: parseInt(row.completed),
-        revenue: parseFloat(row.revenue),
-        commission: parseFloat(row.commission)
-      })),
-      topServices: topServicesResult.rows.map(row => ({
-        name: row.name,
-        category: row.category,
-        bookingsCount: parseInt(row.bookings_count),
-        totalRevenue: parseFloat(row.total_revenue),
-        totalCommission: parseFloat(row.total_commission)
-      }))
+    // Verificar permissão
+    if (req.user.role !== 'admin' && req.user.id != id) {
+      return res.status(403).json({
+        success: false,
+        message: 'Acesso negado'
+      });
     }
-  });
-}));
 
-// POST /api/affiliates/:id/update-totals - Atualizar totais (admin only)
-router.post('/:id/update-totals', authenticateToken, authorize(['admin']), [
-  param('id').isUUID().withMessage('ID do afiliado inválido')
-], asyncHandler(async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    throw new ValidationError('ID inválido');
+    // Estatísticas gerais
+    const generalStatsResult = await pool.query(`
+      SELECT 
+        COUNT(c.id) as total_commissions,
+        COUNT(CASE WHEN c.status = 'pending' THEN 1 END) as pending_commissions,
+        COUNT(CASE WHEN c.status = 'paid' THEN 1 END) as paid_commissions,
+        COUNT(CASE WHEN c.status = 'cancelled' THEN 1 END) as cancelled_commissions,
+        COALESCE(SUM(c.amount), 0) as total_amount,
+        COALESCE(SUM(CASE WHEN c.status = 'paid' THEN c.amount ELSE 0 END), 0) as paid_amount,
+        COALESCE(SUM(CASE WHEN c.status = 'pending' THEN c.amount ELSE 0 END), 0) as pending_amount,
+        COALESCE(AVG(CASE WHEN c.status = 'paid' THEN c.amount ELSE NULL END), 0) as avg_commission,
+        COUNT(DISTINCT a.patient_id) as unique_referrals
+      FROM commissions c
+      LEFT JOIN appointments a ON c.appointment_id = a.id
+      WHERE c.affiliate_id = $1
+    `, [id]);
+
+    // Estatísticas por período
+    let periodCondition = '';
+    if (period === '7') {
+      periodCondition = "AND c.created_at >= CURRENT_DATE - INTERVAL '7 days'";
+    } else if (period === '30') {
+      periodCondition = "AND c.created_at >= CURRENT_DATE - INTERVAL '30 days'";
+    } else if (period === 'month') {
+      periodCondition = `AND EXTRACT(YEAR FROM c.created_at) = ${year} AND EXTRACT(MONTH FROM c.created_at) = ${month}`;
+    } else if (period === 'year') {
+      periodCondition = `AND EXTRACT(YEAR FROM c.created_at) = ${year}`;
+    }
+
+    const periodStatsResult = await pool.query(`
+      SELECT 
+        COUNT(c.id) as period_commissions,
+        COALESCE(SUM(c.amount), 0) as period_amount,
+        COALESCE(SUM(CASE WHEN c.status = 'paid' THEN c.amount ELSE 0 END), 0) as period_paid,
+        COUNT(DISTINCT a.patient_id) as period_referrals
+      FROM commissions c
+      LEFT JOIN appointments a ON c.appointment_id = a.id
+      WHERE c.affiliate_id = $1 ${periodCondition}
+    `, [id]);
+
+    // Evolução mensal (últimos 12 meses)
+    const monthlyEvolutionResult = await pool.query(`
+      SELECT 
+        DATE_TRUNC('month', c.created_at) as month,
+        COUNT(c.id) as commissions,
+        COALESCE(SUM(c.amount), 0) as amount,
+        COALESCE(SUM(CASE WHEN c.status = 'paid' THEN c.amount ELSE 0 END), 0) as paid_amount,
+        COUNT(DISTINCT a.patient_id) as referrals
+      FROM commissions c
+      LEFT JOIN appointments a ON c.appointment_id = a.id
+      WHERE c.affiliate_id = $1 
+        AND c.created_at >= CURRENT_DATE - INTERVAL '12 months'
+      GROUP BY DATE_TRUNC('month', c.created_at)
+      ORDER BY month
+    `, [id]);
+
+    // Top tipos de consulta referenciados
+    const topTypesResult = await pool.query(`
+      SELECT 
+        a.type as appointment_type,
+        COUNT(c.id) as count,
+        COALESCE(SUM(c.amount), 0) as total_commission
+      FROM commissions c
+      INNER JOIN appointments a ON c.appointment_id = a.id
+      WHERE c.affiliate_id = $1 ${periodCondition}
+      GROUP BY a.type
+      ORDER BY count DESC
+      LIMIT 5
+    `, [id]);
+
+    const generalStats = generalStatsResult.rows[0];
+    const periodStats = periodStatsResult.rows[0];
+    const monthlyEvolution = monthlyEvolutionResult.rows;
+    const topTypes = topTypesResult.rows;
+
+    // Calcular taxas
+    const conversionRate = generalStats.unique_referrals > 0 
+      ? ((generalStats.paid_commissions / generalStats.unique_referrals) * 100).toFixed(2)
+      : 0;
+
+    res.json({
+      success: true,
+      data: {
+        general: {
+          ...generalStats,
+          total_commissions: parseInt(generalStats.total_commissions),
+          pending_commissions: parseInt(generalStats.pending_commissions),
+          paid_commissions: parseInt(generalStats.paid_commissions),
+          cancelled_commissions: parseInt(generalStats.cancelled_commissions),
+          unique_referrals: parseInt(generalStats.unique_referrals),
+          total_amount: parseFloat(generalStats.total_amount),
+          paid_amount: parseFloat(generalStats.paid_amount),
+          pending_amount: parseFloat(generalStats.pending_amount),
+          avg_commission: parseFloat(generalStats.avg_commission),
+          conversion_rate: parseFloat(conversionRate)
+        },
+        period: {
+          ...periodStats,
+          period_commissions: parseInt(periodStats.period_commissions),
+          period_referrals: parseInt(periodStats.period_referrals),
+          period_amount: parseFloat(periodStats.period_amount),
+          period_paid: parseFloat(periodStats.period_paid)
+        },
+        monthly_evolution: monthlyEvolution.map(evolution => ({
+          month: evolution.month,
+          commissions: parseInt(evolution.commissions),
+          referrals: parseInt(evolution.referrals),
+          amount: parseFloat(evolution.amount),
+          paid_amount: parseFloat(evolution.paid_amount)
+        })),
+        top_types: topTypes.map(type => ({
+          appointment_type: type.appointment_type,
+          count: parseInt(type.count),
+          total_commission: parseFloat(type.total_commission)
+        }))
+      }
+    });
+
+  } catch (error) {
+    next(error);
   }
+});
 
-  const affiliateId = req.params.id;
+// GET /api/affiliates/code/:code - Validar código de afiliado (público)
+router.get('/code/:code', param('code').isAlphanumeric(), async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Código inválido',
+        errors: errors.array()
+      });
+    }
 
-  // Verificar se afiliado existe
-  const affiliateResult = await executeQuery(
-    'SELECT id FROM affiliates WHERE id = $1',
-    [affiliateId]
-  );
+    const { code } = req.params;
 
-  if (affiliateResult.rows.length === 0) {
-    throw new NotFoundError('Afiliado não encontrado');
+    // Buscar afiliado pelo código
+    const affiliateResult = await pool.query(`
+      SELECT 
+        u.id,
+        u.name,
+        u.status as user_status,
+        a.affiliate_code,
+        a.commission_rate,
+        a.status as affiliate_status
+      FROM users u
+      INNER JOIN affiliates a ON u.id = a.user_id
+      WHERE a.affiliate_code = $1 
+        AND u.status = 'ativo' 
+        AND a.status = 'ativo'
+    `, [code.toUpperCase()]);
+
+    if (affiliateResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Código de afiliado não encontrado ou inativo'
+      });
+    }
+
+    const affiliate = affiliateResult.rows[0];
+
+    res.json({
+      success: true,
+      message: 'Código de afiliado válido',
+      data: {
+        affiliate_name: affiliate.name,
+        affiliate_code: affiliate.affiliate_code,
+        commission_rate: affiliate.commission_rate
+      }
+    });
+
+  } catch (error) {
+    next(error);
   }
-
-  // Atualizar totais
-  await updateAffiliateTotals(affiliateId);
-
-  // Log da ação
-  logHelpers.audit('UPDATE_AFFILIATE_TOTALS', {
-    affiliateId,
-    updatedBy: req.user.email
-  });
-
-  res.json({
-    success: true,
-    message: 'Totais atualizados com sucesso'
-  });
-}));
+});
 
 module.exports = router;
-```

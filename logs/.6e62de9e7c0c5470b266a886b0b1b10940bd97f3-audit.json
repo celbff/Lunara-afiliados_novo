@@ -1,0 +1,15 @@
+{
+    "keep": {
+        "days": true,
+        "amount": 90
+    },
+    "auditLog": "D:\\LUNARA\\Agenda_Afiliados-FINAL\\logs\\.6e62de9e7c0c5470b266a886b0b1b10940bd97f3-audit.json",
+    "files": [
+        {
+            "date": 1754326795366,
+            "name": "D:\\LUNARA\\Agenda_Afiliados-FINAL\\logs\\audit-2025-08-04.log",
+            "hash": "38ff8747544fbd794e90a7c9a478d42f465ed2820115f5ab52dcd0e29cefefff"
+        }
+    ],
+    "hashType": "sha256"
+}

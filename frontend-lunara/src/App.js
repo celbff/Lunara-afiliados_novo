@@ -1,6 +1,3 @@
-# Frontend React - frontend-lunara/src/App.js
-
-```javascript
 // frontend-lunara/src/App.js
 // App principal - Lunara Afiliados + Agenda 2.0
 // Integração completa entre sistemas
@@ -804,4 +801,3 @@ const App = () => {
 };
 
 export default App;
-```
