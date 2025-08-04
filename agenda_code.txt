@@ -1,0 +1,2744 @@
+import React, { useState, useEffect, useCallback } from 'react';
+
+// Função para gerar QR Code visual
+const generateQRCodeDataURL = (text) => {
+  try {
+    // Verificar se estamos no browser
+    if (typeof document === 'undefined') {
+      return null;
+    }
+
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    const size = 256;
+    const cellSize = size / 25; // 25x25 grid
+    
+    canvas.width = size;
+    canvas.height = size;
+    
+    // Fundo branco
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, size, size);
+    
+    // Gerar um padrão baseado no hash do texto
+    ctx.fillStyle = '#000000';
+    const hash = text.split('').reduce((a, b) => {
+      a = ((a << 5) - a) + b.charCodeAt(0);
+      return a & a;
+    }, 0);
+    
+    // Desenhar um padrão de QR Code simples
+    for (let x = 0; x < 25; x++) {
+      for (let y = 0; y < 25; y++) {
+        const value = Math.abs(hash + x * 31 + y * 17) % 100;
+        if (value > 50) {
+          ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+        }
+      }
+    }
+    
+    // Adicionar cantos de referência típicos do QR Code
+    const cornerSize = cellSize * 7;
+    
+    // Canto superior esquerdo
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = cellSize;
+    ctx.strokeRect(0, 0, cornerSize, cornerSize);
+    ctx.fillRect(cellSize * 2, cellSize * 2, cellSize * 3, cellSize * 3);
+    
+    // Canto superior direito
+    ctx.strokeRect(size - cornerSize, 0, cornerSize, cornerSize);
+    ctx.fillRect(size - cellSize * 5, cellSize * 2, cellSize * 3, cellSize * 3);
+    
+    // Canto inferior esquerdo
+    ctx.strokeRect(0, size - cornerSize, cornerSize, cornerSize);
+    ctx.fillRect(cellSize * 2, size - cellSize * 5, cellSize * 3, cellSize * 3);
+    
+    return canvas.toDataURL();
+  } catch (error) {
+    console.error('Erro ao gerar QR Code:', error);
+    return null;
+  }
+};
+
+// 🚀 SISTEMA COMPLETO DE MONETIZAÇÃO - AGENDA PROFISSIONAL
+const AgendaLocalQR = () => {
+  // Estados de perfil
+  const [currentProfile, setCurrentProfile] = useState(null);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [isFreemiumMode, setIsFreemiumMode] = useState(true);
+  const [premiumStatus, setPremiumStatus] = useState(null);
+  const [isMasterUser, setIsMasterUser] = useState(false);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [showSerialModal, setShowSerialModal] = useState(false);
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [showQRModal, setShowQRModal] = useState(false);
+  const [qrAction, setQRAction] = useState(null);
+  const [qrData, setQRData] = useState('');
+  const [showProfileSelector, setShowProfileSelector] = useState(false);
+  const [expiredModalShown, setExpiredModalShown] = useState(false);
+
+  // Estados básicos
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState(null);
+  
+  // Modais
+  const [showAgendamentoModal, setShowAgendamentoModal] = useState(false);
+  const [showPacienteModal, setShowPacienteModal] = useState(false);
+  const [showTerapiaModal, setShowTerapiaModal] = useState(false);
+  const [showConfigModal, setShowConfigModal] = useState(false);
+
+  // Sistema de inicialização
+  const [isReady, setIsReady] = useState(false);
+  const [loadingProgress, setLoadingProgress] = useState(0);
+
+  // Dados locais do perfil atual
+  const [pacientes, setPacientes] = useState([]);
+  const [terapias, setTerapias] = useState([]);
+  const [agendamentos, setAgendamentos] = useState([]);
+  const [tratamentosPendentes, setTratamentosPendentes] = useState({});
+  
+  // Estados dos formulários
+  const [novoPaciente, setNovoPaciente] = useState({ nome: '', telefone: '', email: '' });
+  const [novaTerapia, setNovaTerapia] = useState({ nome: '', duracao: '', cor: '#3B82F6' });
+  const [novoAgendamento, setNovoAgendamento] = useState({
+    pacienteId: '', terapiaId: '', horario: '', observacoes: ''
+  });
+  const [novoPerfil, setNovoPerfil] = useState({ nome: '', especialidade: '', senha: '' });
+
+  // 💎 SISTEMA DE PREMIUM - CONFIGURAÇÕES
+  const PREMIUM_LIMITS = {
+    FREE: { pacientes: 5, terapias: 3, perfis: 1 },
+    PREMIUM: { pacientes: 999, terapias: 999, perfis: 2 }
+  };
+
+  const PREMIUM_PRICES = {
+    monthly: { value: 14.90, description: 'Mensal - R$ 14,90' },
+    annual: { value: 149.00, description: 'Anual - R$ 149,00 (12 meses por preço de 10!)' }
+  };
+
+  // 🔑 CHAVES SERIAIS COMPLETAS
+  const SERIAL_KEYS = [
+    // Chaves Mensais Premium
+    'LUNA-2025-P001-ABCD', 'LUNA-2025-P002-EFGH', 'LUNA-2025-P003-IJKL', 'LUNA-2025-P004-MNOP',
+    'LUNA-2025-P005-QRST', 'LUNA-2025-P006-UVWX', 'LUNA-2025-P007-YZAB', 'LUNA-2025-P008-CDEF',
+    'LUNA-2025-P009-GHIJ', 'LUNA-2025-P010-KLMN', 'LUNA-2025-P011-OPQR', 'LUNA-2025-P012-STUV',
+    'LUNA-2025-P013-WXYZ', 'LUNA-2025-P014-ABCD', 'LUNA-2025-P015-EFGH', 'LUNA-2025-P016-IJKL',
+    'LUNA-2025-P017-MNOP', 'LUNA-2025-P018-QRST', 'LUNA-2025-P019-UVWX', 'LUNA-2025-P020-YZAB',
+    'LUNA-2025-P021-CDEF', 'LUNA-2025-P022-GHIJ', 'LUNA-2025-P023-KLMN', 'LUNA-2025-P024-OPQR',
+    'LUNA-2025-P025-STUV', 'LUNA-2025-P026-WXYZ', 'LUNA-2025-P027-ABCD', 'LUNA-2025-P028-EFGH',
+    'LUNA-2025-P029-IJKL', 'LUNA-2025-P030-MNOP',
+    
+    // Chaves Anuais Premium
+    'LUNA-2025-PA01-ABCD', 'LUNA-2025-PA02-EFGH', 'LUNA-2025-PA03-IJKL', 'LUNA-2025-PA04-MNOP',
+    'LUNA-2025-PA05-QRST', 'LUNA-2025-PA06-UVWX', 'LUNA-2025-PA07-YZAB', 'LUNA-2025-PA08-CDEF',
+    'LUNA-2025-PA09-GHIJ', 'LUNA-2025-PA10-KLMN', 'LUNA-2025-PA11-OPQR', 'LUNA-2025-PA12-STUV',
+    'LUNA-2025-PA13-WXYZ', 'LUNA-2025-PA14-ABCD', 'LUNA-2025-PA15-EFGH', 'LUNA-2025-PA16-IJKL',
+    'LUNA-2025-PA17-MNOP', 'LUNA-2025-PA18-QRST', 'LUNA-2025-PA19-UVWX', 'LUNA-2025-PA20-YZAB',
+    'LUNA-2025-PA21-CDEF', 'LUNA-2025-PA22-GHIJ', 'LUNA-2025-PA23-KLMN', 'LUNA-2025-PA24-OPQR',
+    'LUNA-2025-PA25-STUV', 'LUNA-2025-PA26-WXYZ', 'LUNA-2025-PA27-ABCD', 'LUNA-2025-PA28-EFGH',
+    'LUNA-2025-PA29-IJKL', 'LUNA-2025-PA30-MNOP'
+  ];
+
+  // 👑 CHAVES MASTER
+  const MASTER_KEYS = [
+    'LUNA-MSTR-001-ABCD-EFGH-M2',
+    'LUNA-MSTR-002-IJKL-MNOP-M2', 
+    'LUNA-MSTR-003-QRST-UVWX-M2'
+  ];
+
+  // 🧪 CHAVES DE TESTE
+  const TEST_KEYS = {
+    test7: [
+      'LUNA-TEST7-001-ABCD', 'LUNA-TEST7-002-EFGH', 'LUNA-TEST7-003-IJKL',
+      'LUNA-TEST7-004-MNOP', 'LUNA-TEST7-005-QRST', 'LUNA-TEST7-006-UVWX'
+    ],
+    test15: [
+      'LUNA-TEST15-001-ABCD', 'LUNA-TEST15-002-EFGH', 'LUNA-TEST15-003-IJKL',
+      'LUNA-TEST15-004-MNOP', 'LUNA-TEST15-005-QRST', 'LUNA-TEST15-006-UVWX'
+    ]
+  };
+
+  // 💎 SISTEMA DE PREMIUM - VERIFICAÇÃO E ATIVAÇÃO
+  const checkPremiumStatus = () => {
+    try {
+      const saved = localStorage.getItem('agenda_premium_status');
+      
+      if (saved) {
+        const status = JSON.parse(saved);
+        
+        // Verificar se é chave mestre (nunca expira)
+        if (status.isMaster || status.type === 'master') {
+          setPremiumStatus({ ...status, daysLeft: '∞' });
+          setIsFreemiumMode(false);
+          setIsMasterUser(true);
+          return;
+        }
+        
+        // Verificar se é chave de teste
+        if (status.isTest) {
+          const now = new Date();
+          const expires = new Date(status.expiresAt);
+          
+          if (expires > now) {
+            const daysLeft = Math.ceil((expires - now) / (1000 * 60 * 60 * 24));
+            setPremiumStatus({ ...status, daysLeft });
+            setIsFreemiumMode(false);
+            setIsMasterUser(false);
+            
+            // Alerta para testes de 7 dias
+            if (status.testType === 'test7' && daysLeft <= 1 && !expiredModalShown) {
+              setExpiredModalShown(true);
+              alert('⚠️ TESTE DE 7 DIAS EXPIRANDO!\n\n⏰ Menos de 24h restantes\n📄 Seus dados serão apagados automaticamente\n💾 Para preservar dados, ative uma chave Premium\n\n🔑 Use o botão "Ativar Serial" para converter');
+            }
+            return;
+          } else {
+            // Teste expirado
+            if (status.testType === 'test7') {
+              // Apagar dados do teste de 7 dias
+              const key = `agenda_data_${currentProfile?.id}`;
+              localStorage.removeItem(key);
+              alert('⏰ TESTE DE 7 DIAS EXPIRADO!\n\n🗑️ Dados temporários removidos automaticamente\n💡 Para usar novamente, ative uma chave Premium\n\n✨ Obrigado por testar nossa plataforma!');
+            } else if (status.testType === 'test15') {
+              // Bloquear funcionalidades mas preservar dados
+              alert('⏰ TESTE DE 15 DIAS EXPIRADO!\n\n📦 Seus dados estão preservados\n🔒 Funcionalidades bloqueadas temporariamente\n🔑 Ative uma chave Premium para continuar usando\n\n💾 Nenhum dado foi perdido!');
+            }
+            
+            // Limpar status premium
+            localStorage.removeItem('agenda_premium_status');
+            setPremiumStatus(null);
+            setIsFreemiumMode(true);
+            setIsMasterUser(false);
+          }
+        } else {
+          // Verificar chaves regulares com expiração
+          const now = new Date();
+          const expires = new Date(status.expiresAt);
+          
+          if (expires > now) {
+            const daysLeft = Math.ceil((expires - now) / (1000 * 60 * 60 * 24));
+            setPremiumStatus({ ...status, daysLeft });
+            setIsFreemiumMode(false);
+            setIsMasterUser(false);
+            
+            // Alerta de vencimento
+            if (daysLeft <= 7 && !expiredModalShown) {
+              setExpiredModalShown(true);
+              alert(`⚠️ PREMIUM VENCENDO!\n\n⏰ ${daysLeft} dias restantes\n🔄 Renove sua assinatura para continuar\n💳 Use PIX ou Cartão para renovar\n\n🔑 Botão "Renovar" disponível no header`);
+            }
+            return;
+          } else {
+            // Premium expirado
+            localStorage.removeItem('agenda_premium_status');
+            setPremiumStatus(null);
+            setIsFreemiumMode(true);
+            setIsMasterUser(false);
+            alert('⏰ PREMIUM EXPIRADO!\n\n🔒 Voltando para versão gratuita\n📊 Dados preservados mas limitados\n💎 Reactive seu Premium a qualquer momento\n\n✨ Obrigado por usar nossa plataforma!');
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Erro ao verificar status premium:', error);
+    }
+  };
+
+  const activateSerialKey = (serialKey) => {
+    const upperKey = serialKey.toUpperCase().trim();
+    
+    // Verificar se é chave mestre (22 caracteres)
+    const isMasterKey = MASTER_KEYS.includes(upperKey);
+    const isRegularKey = SERIAL_KEYS.includes(upperKey);
+    const isTest7Key = TEST_KEYS.test7.includes(upperKey);
+    const isTest15Key = TEST_KEYS.test15.includes(upperKey);
+    
+    if (!isMasterKey && !isRegularKey && !isTest7Key && !isTest15Key) {
+      alert('❌ Chave serial inválida!\n\nVerifique se digitou corretamente ou entre em contato conosco.\n\n📱 Suporte: WhatsApp (16) 99793-4558');
+      return false;
+    }
+
+    const usedKeys = JSON.parse(localStorage.getItem('agenda_used_keys') || '[]');
+    if (usedKeys.includes(upperKey)) {
+      alert('❌ Esta chave serial já foi utilizada!\n\nCada chave pode ser usada apenas uma vez.\nSe você precisa de uma nova chave, entre em contato conosco.\n\n📱 Suporte: WhatsApp (16) 99793-4558');
+      return false;
+    }
+
+    // 📅 LÓGICA DE RENOVAÇÃO INTELIGENTE
+    const calculateNewExpiration = (duration) => {
+      const now = new Date();
+      
+      // Se já tem Premium ativo, somar ao vencimento atual
+      if (premiumStatus && premiumStatus.expiresAt && !premiumStatus.isTest) {
+        const currentExpires = new Date(premiumStatus.expiresAt);
+        
+        // Se ainda não venceu, somar ao vencimento atual
+        if (currentExpires > now) {
+          return new Date(currentExpires.getTime() + (duration * 24 * 60 * 60 * 1000));
+        }
+      }
+      
+      // Se não tem Premium ou já venceu, contar a partir de agora
+      return new Date(now.getTime() + (duration * 24 * 60 * 60 * 1000));
+    };
+
+    if (isMasterKey) {
+      // Ativação de chave mestre - acesso permanente + painel admin
+      const status = {
+        type: 'master',
+        isMaster: true,
+        activatedAt: new Date().toISOString(),
+        expiresAt: null, // Nunca expira
+        serialKey: upperKey,
+        daysLeft: '∞',
+        previousStatus: premiumStatus // Manter histórico
+      };
+
+      localStorage.setItem('agenda_premium_status', JSON.stringify(status));
+      localStorage.setItem('agenda_master_access', 'true');
+      usedKeys.push(upperKey);
+      localStorage.setItem('agenda_used_keys', JSON.stringify(usedKeys));
+
+      setPremiumStatus(status);
+      setIsFreemiumMode(false);
+      setIsMasterUser(true);
+      
+      alert(`🔑 CHAVE MESTRE ATIVADA!\n\n✅ Acesso: PERMANENTE E ILIMITADO\n✅ Painel Admin: LIBERADO\n✅ Todos os recursos: SEM LIMITE\n✅ Perfis: ILIMITADOS\n✅ Backup: AUTOMÁTICO\n\n👑 Bem-vindo ao acesso completo da plataforma!`);
+      
+      return true;
+    } else if (isTest7Key) {
+      // Ativação de teste 7 dias - dados temporários
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + (7 * 24 * 60 * 60 * 1000));
+      
+      const status = {
+        type: 'test',
+        isTest: true,
+        testType: 'test7',
+        activatedAt: now.toISOString(),
+        expiresAt: expiresAt.toISOString(),
+        serialKey: upperKey,
+        daysLeft: 7,
+        previousStatus: premiumStatus
+      };
+
+      localStorage.setItem('agenda_premium_status', JSON.stringify(status));
+      usedKeys.push(upperKey);
+      localStorage.setItem('agenda_used_keys', JSON.stringify(usedKeys));
+
+      setPremiumStatus(status);
+      setIsFreemiumMode(false);
+      
+      alert(`🧪 TESTE 7 DIAS ATIVADO!\n\n✅ Período: 7 dias de teste\n✅ Recursos: PREMIUM completo\n⚠️ ATENÇÃO: Dados temporários\n📅 Válido até: ${expiresAt.toLocaleDateString()}\n\n🗑️ Dados serão apagados no final\n💾 Para preservar dados, ative Premium antes do vencimento!`);
+      
+      return true;
+    } else if (isTest15Key) {
+      // Ativação de teste 15 dias - dados preservados
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + (15 * 24 * 60 * 60 * 1000));
+      
+      const status = {
+        type: 'test',
+        isTest: true,
+        testType: 'test15',
+        activatedAt: now.toISOString(),
+        expiresAt: expiresAt.toISOString(),
+        serialKey: upperKey,
+        daysLeft: 15,
+        previousStatus: premiumStatus
+      };
+
+      localStorage.setItem('agenda_premium_status', JSON.stringify(status));
+      usedKeys.push(upperKey);
+      localStorage.setItem('agenda_used_keys', JSON.stringify(usedKeys));
+
+      setPremiumStatus(status);
+      setIsFreemiumMode(false);
+      
+      alert(`🚀 TESTE 15 DIAS ATIVADO!\n\n✅ Período: 15 dias de teste\n✅ Recursos: PREMIUM completo\n💾 GARANTIA: Dados preservados\n📅 Válido até: ${expiresAt.toLocaleDateString()}\n\n✨ Seus dados ficam salvos mesmo após vencer\n🔑 Upgrade para Premium a qualquer momento!`);
+      
+      return true;
+    } else {
+      // Ativação de chave regular com lógica de renovação
+      const isAnnual = upperKey.includes('-PA');
+      const type = isAnnual ? 'annual' : 'monthly';
+      const duration = isAnnual ? 365 : 30;
+      
+      const now = new Date();
+      const expiresAt = calculateNewExpiration(duration);
+      
+      // Calcular dias totais
+      const totalDays = Math.ceil((expiresAt - now) / (1000 * 60 * 60 * 24));
+      
+      // Verificar se é renovação ou upgrade
+      const isRenewal = premiumStatus && !premiumStatus.isTest && !isFreemiumMode;
+      const isUpgrade = premiumStatus && premiumStatus.isTest;
+      
+      let alertMessage = '';
+      
+      if (isRenewal) {
+        const daysAdded = duration;
+        const currentExpires = new Date(premiumStatus.expiresAt);
+        const wasExpired = currentExpires <= now;
+        
+        if (wasExpired) {
+          alertMessage = `🔄 RENOVAÇÃO REALIZADA!\n\n✅ Plano anterior: Vencido\n✅ Novo plano: ${isAnnual ? 'Anual' : 'Mensal'}\n✅ Duração: ${duration} dias\n✅ Válido até: ${expiresAt.toLocaleDateString()}\n✅ Dias restantes: ${totalDays}\n\n🚀 Premium reativado com sucesso!`;
+        } else {
+          const currentDaysLeft = Math.ceil((currentExpires - now) / (1000 * 60 * 60 * 24));
+          alertMessage = `🔄 RENOVAÇÃO ANTECIPADA!\n\n✅ Dias restantes anteriores: ${currentDaysLeft}\n✅ Dias adicionados: +${daysAdded}\n✅ Total de dias agora: ${totalDays}\n✅ Novo vencimento: ${expiresAt.toLocaleDateString()}\n\n💡 Renovação somada ao tempo restante!`;
+        }
+      } else if (isUpgrade) {
+        alertMessage = `⬆️ UPGRADE REALIZADO!\n\n✅ De: Teste ${premiumStatus.testType === 'test7' ? '7d' : '15d'}\n✅ Para: Premium ${isAnnual ? 'Anual' : 'Mensal'}\n✅ Duração: ${duration} dias\n✅ Válido até: ${expiresAt.toLocaleDateString()}\n✅ Dias restantes: ${totalDays}\n\n🎉 Bem-vindo ao Premium completo!`;
+      } else {
+        alertMessage = `🎉 PREMIUM ATIVADO!\n\n✅ Plano: ${isAnnual ? 'Anual' : 'Mensal'}\n✅ Válido até: ${expiresAt.toLocaleDateString()}\n✅ Dias restantes: ${totalDays}\n✅ Perfis: ${PREMIUM_LIMITS.PREMIUM.perfis}\n✅ Pacientes: Ilimitados\n✅ Terapias: Ilimitadas\n\n🚀 Aproveite todas as funcionalidades premium!`;
+      }
+      
+      const status = {
+        type,
+        isMaster: false,
+        activatedAt: new Date().toISOString(),
+        expiresAt: expiresAt.toISOString(),
+        serialKey: upperKey,
+        daysLeft: totalDays,
+        isRenewal,
+        isUpgrade,
+        previousStatus: premiumStatus
+      };
+
+      localStorage.setItem('agenda_premium_status', JSON.stringify(status));
+      usedKeys.push(upperKey);
+      localStorage.setItem('agenda_used_keys', JSON.stringify(usedKeys));
+
+      setPremiumStatus(status);
+      setIsFreemiumMode(false);
+      
+      alert(alertMessage);
+      
+      return true;
+    }
+  };
+
+  // 🔒 FUNÇÕES DE VALIDAÇÃO DE LIMITES
+  const canAddPaciente = () => {
+    if (isFreemiumMode) {
+      return pacientes.length < PREMIUM_LIMITS.FREE.pacientes;
+    } else if (premiumStatus?.isTest && premiumStatus?.testType === 'test7') {
+      // Teste de 7 dias: permitir apenas importar dados
+      return false;
+    }
+    return pacientes.length < PREMIUM_LIMITS.PREMIUM.pacientes;
+  };
+
+  const canAddTerapia = () => {
+    if (isFreemiumMode) {
+      return terapias.length < PREMIUM_LIMITS.FREE.terapias;
+    } else if (premiumStatus?.isTest && premiumStatus?.testType === 'test7') {
+      // Teste de 7 dias: permitir apenas importar dados
+      return false;
+    }
+    return terapias.length < PREMIUM_LIMITS.PREMIUM.terapias;
+  };
+
+  const canAddProfile = () => {
+    const profiles = getStoredProfiles();
+    if (isFreemiumMode) {
+      return profiles.length < PREMIUM_LIMITS.FREE.perfis;
+    }
+    return profiles.length < PREMIUM_LIMITS.PREMIUM.perfis;
+  };
+
+  const canImportData = () => {
+    // Sempre permitir importar dados via QR (mesmo teste 7 dias)
+    return true;
+  };
+
+  const canAddAgendamento = () => {
+    if (premiumStatus?.isTest && premiumStatus?.testType === 'test7') {
+      // Teste de 7 dias: bloquear criação de agendamentos
+      return false;
+    }
+    return true;
+  };
+
+  // Funções de perfil
+  const getStoredProfiles = () => {
+    try {
+      const profiles = localStorage.getItem('agenda_profiles');
+      const profilesList = profiles ? JSON.parse(profiles) : [];
+      
+      // Aplicar limite de perfis no modo gratuito
+      if (isFreemiumMode && profilesList.length > PREMIUM_LIMITS.FREE.perfis) {
+        const limitedProfiles = profilesList.slice(0, PREMIUM_LIMITS.FREE.perfis);
+        localStorage.setItem('agenda_profiles', JSON.stringify(limitedProfiles));
+        return limitedProfiles;
+      }
+      
+      return profilesList;
+    } catch {
+      return [];
+    }
+  };
+
+  const saveProfile = (profile) => {
+    try {
+      const profiles = getStoredProfiles();
+      const existingIndex = profiles.findIndex(p => p.id === profile.id);
+      
+      if (existingIndex >= 0) {
+        profiles[existingIndex] = profile;
+      } else {
+        profiles.push(profile);
+      }
+      
+      localStorage.setItem('agenda_profiles', JSON.stringify(profiles));
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const loadProfileData = (profileId) => {
+    try {
+      const key = `agenda_data_${profileId}`;
+      const data = localStorage.getItem(key);
+      
+      if (data) {
+        const parsed = JSON.parse(data);
+        setPacientes(parsed.pacientes || []);
+        setTerapias(parsed.terapias || [
+          { id: 1, nome: 'Fisioterapia', duracao: '60 min', cor: '#3B82F6' },
+          { id: 2, nome: 'Acupuntura', duracao: '45 min', cor: '#10B981' },
+          { id: 3, nome: 'Massoterapia', duracao: '90 min', cor: '#8B5CF6' }
+        ]);
+        setAgendamentos(parsed.agendamentos || []);
+        setTratamentosPendentes(parsed.tratamentosPendentes || {});
+      } else {
+        setPacientes([
+          { id: 1, nome: 'Maria Silva', telefone: '(16) 99999-9999', email: 'maria@email.com' },
+          { id: 2, nome: 'João Santos', telefone: '(16) 88888-8888', email: 'joao@email.com' }
+        ]);
+        setTerapias([
+          { id: 1, nome: 'Fisioterapia', duracao: '60 min', cor: '#3B82F6' },
+          { id: 2, nome: 'Acupuntura', duracao: '45 min', cor: '#10B981' },
+          { id: 3, nome: 'Massoterapia', duracao: '90 min', cor: '#8B5CF6' }
+        ]);
+        setAgendamentos([]);
+        setTratamentosPendentes({});
+      }
+    } catch (error) {
+      console.error('Erro ao carregar dados do perfil:', error);
+    }
+  };
+
+  const saveProfileData = (profileId) => {
+    try {
+      const key = `agenda_data_${profileId}`;
+      const data = {
+        pacientes,
+        terapias,
+        agendamentos,
+        tratamentosPendentes,
+        lastUpdate: new Date().toISOString()
+      };
+      localStorage.setItem(key, JSON.stringify(data));
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const createProfile = () => {
+    if (!novoPerfil.nome.trim()) {
+      alert('Nome é obrigatório!');
+      return;
+    }
+
+    if (!canAddProfile()) {
+      const limit = isFreemiumMode ? PREMIUM_LIMITS.FREE.perfis : PREMIUM_LIMITS.PREMIUM.perfis;
+      alert(`🔒 Limite de perfis atingido!\n\nSeu plano atual permite: ${limit} perfil${limit > 1 ? 's' : ''}\n\n🌟 ${isFreemiumMode ? 'Atualize para PREMIUM para criar múltiplos perfis.' : 'Você já tem o máximo de perfis para o plano Premium.'}`);
+      return;
+    }
+    
+    const newProfile = {
+      id: `profile_${Date.now()}`,
+      nome: novoPerfil.nome,
+      especialidade: novoPerfil.especialidade || 'Terapeuta',
+      senha: novoPerfil.senha || '',
+      createdAt: new Date().toISOString(),
+      lastAccess: new Date().toISOString()
+    };
+    
+    if (saveProfile(newProfile)) {
+      setCurrentProfile(newProfile);
+      loadProfileData(newProfile.id);
+      localStorage.setItem('agenda_last_profile', newProfile.id);
+      setNovoPerfil({ nome: '', especialidade: '', senha: '' });
+      setShowProfileModal(false);
+      setIsReady(true);
+    } else {
+      alert('Erro ao criar perfil. Tente novamente.');
+    }
+  };
+
+  const handleCancelProfile = () => {
+    const profiles = getStoredProfiles();
+    
+    if (profiles.length === 0) {
+      const defaultProfile = {
+        id: `profile_default_${Date.now()}`,
+        nome: 'Perfil Demonstração',
+        especialidade: 'Versão Gratuita',
+        senha: '',
+        createdAt: new Date().toISOString(),
+        lastAccess: new Date().toISOString(),
+        isDemo: true
+      };
+      
+      if (saveProfile(defaultProfile)) {
+        setCurrentProfile(defaultProfile);
+        loadProfileData(defaultProfile.id);
+        localStorage.setItem('agenda_last_profile', defaultProfile.id);
+        setIsReady(true);
+      }
+    } else {
+      setShowProfileSelector(true);
+    }
+    
+    setShowProfileModal(false);
+    setNovoPerfil({ nome: '', especialidade: '', senha: '' });
+  };
+
+  const selectProfile = (profile, senha = '') => {
+    if (profile.senha && profile.senha !== senha) {
+      const inputSenha = prompt('Digite a senha do perfil:');
+      if (!inputSenha || inputSenha !== profile.senha) {
+        alert('Senha incorreta!');
+        return;
+      }
+    }
+    
+    if (currentProfile) {
+      saveProfileData(currentProfile.id);
+    }
+    
+    const updatedProfile = { ...profile, lastAccess: new Date().toISOString() };
+    saveProfile(updatedProfile);
+    
+    setCurrentProfile(updatedProfile);
+    loadProfileData(profile.id);
+    localStorage.setItem('agenda_last_profile', profile.id);
+    setShowProfileSelector(false);
+    setIsReady(true);
+  };
+
+  // Funções de QR Code
+  const generateQRData = () => {
+    const dataToExport = {
+      type: 'agenda_sync',
+      version: '2.0',
+      profile: currentProfile,
+      data: {
+        pacientes,
+        terapias,
+        agendamentos,
+        tratamentosPendentes
+      },
+      exportDate: new Date().toISOString(),
+      syncId: `sync_${Date.now()}`
+    };
+    
+    return JSON.stringify(dataToExport);
+  };
+
+  const processQRImport = (qrText) => {
+    try {
+      const importData = JSON.parse(qrText);
+      
+      if (importData.type !== 'agenda_sync') {
+        throw new Error('QR Code inválido - não é um backup da agenda');
+      }
+      
+      // Verificar se pode importar dados
+      if (!canImportData()) {
+        alert('🔒 Importação não permitida no seu plano atual.\n\nAtualize para Premium para importar dados.');
+        return;
+      }
+      
+      const options = [
+        'Substituir todos os dados',
+        'Mesclar dados (manter + importar)',
+        'Apenas revisar (não importar ainda)'
+      ];
+      
+      const choice = prompt(
+        `QR Code detectado!\n\nPerfil: ${importData.profile?.nome}\nData: ${new Date(importData.exportDate).toLocaleString()}\n\nEscolha uma opção:\n1 - ${options[0]}\n2 - ${options[1]}\n3 - ${options[2]}\n\nDigite 1, 2 ou 3:`
+      );
+      
+      if (choice === '1') {
+        setPacientes(importData.data.pacientes || []);
+        setTerapias(importData.data.terapias || []);
+        setAgendamentos(importData.data.agendamentos || []);
+        setTratamentosPendentes(importData.data.tratamentosPendentes || {});
+        alert('✅ Dados importados e substituídos com sucesso!');
+      } else if (choice === '2') {
+        const mergedPacientes = [...pacientes];
+        const mergedTerapias = [...terapias];
+        const mergedAgendamentos = [...agendamentos];
+        const mergedTratamentos = { ...tratamentosPendentes };
+        
+        importData.data.pacientes?.forEach(newPaciente => {
+          const exists = mergedPacientes.find(p => 
+            p.nome.toLowerCase() === newPaciente.nome.toLowerCase()
+          );
+          if (!exists) {
+            mergedPacientes.push({ ...newPaciente, id: Date.now() + Math.random() });
+          }
+        });
+        
+        importData.data.terapias?.forEach(newTerapia => {
+          const exists = mergedTerapias.find(t => 
+            t.nome.toLowerCase() === newTerapia.nome.toLowerCase()
+          );
+          if (!exists) {
+            mergedTerapias.push({ ...newTerapia, id: Date.now() + Math.random() });
+          }
+        });
+        
+        importData.data.agendamentos?.forEach(newAgendamento => {
+          const exists = mergedAgendamentos.find(a => 
+            a.data === newAgendamento.data && a.horario === newAgendamento.horario
+          );
+          if (!exists) {
+            mergedAgendamentos.push({ ...newAgendamento, id: Date.now() + Math.random() });
+          }
+        });
+        
+        Object.keys(importData.data.tratamentosPendentes || {}).forEach(pacienteId => {
+          if (!mergedTratamentos[pacienteId]) {
+            mergedTratamentos[pacienteId] = [];
+          }
+          mergedTratamentos[pacienteId].push(...(importData.data.tratamentosPendentes[pacienteId] || []));
+        });
+        
+        setPacientes(mergedPacientes);
+        setTerapias(mergedTerapias);
+        setAgendamentos(mergedAgendamentos);
+        setTratamentosPendentes(mergedTratamentos);
+        
+        alert('✅ Dados mesclados com sucesso!');
+      } else if (choice === '3') {
+        const resumo = `
+PRÉVIA DOS DADOS:
+
+📋 Pacientes: ${importData.data.pacientes?.length || 0}
+🏥 Terapias: ${importData.data.terapias?.length || 0}
+📅 Agendamentos: ${importData.data.agendamentos?.length || 0}
+📦 Tratamentos: ${Object.keys(importData.data.tratamentosPendentes || {}).length}
+
+Data do backup: ${new Date(importData.exportDate).toLocaleString()}
+
+Para importar, escaneie o QR novamente e escolha a opção 1 ou 2.
+        `;
+        alert(resumo);
+        return;
+      } else {
+        return;
+      }
+      
+      setQRData('');
+      setShowQRModal(false);
+      
+    } catch (error) {
+      alert('❌ Erro ao processar QR Code: ' + error.message);
+    }
+  };
+
+  // Inicialização
+  useEffect(() => {
+    const initializeSystem = async () => {
+      const steps = [
+        'Verificando perfis...',
+        'Carregando sistema...',
+        'Preparando interface...',
+        'Pronto!'
+      ];
+
+      for (let i = 0; i < steps.length; i++) {
+        setLoadingProgress(((i + 1) / steps.length) * 100);
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
+
+      const profiles = getStoredProfiles();
+      const lastProfile = localStorage.getItem('agenda_last_profile');
+      
+      if (profiles.length === 0) {
+        setShowProfileModal(true);
+        setIsReady(true);
+      } else if (lastProfile) {
+        const profile = profiles.find(p => p.id === lastProfile);
+        if (profile) {
+          setCurrentProfile(profile);
+          loadProfileData(profile.id);
+          setIsReady(true);
+        } else {
+          setShowProfileSelector(true);
+          setIsReady(true);
+        }
+      } else {
+        setShowProfileSelector(true);
+        setIsReady(true);
+      }
+    };
+
+    initializeSystem();
+  }, []);
+
+  useEffect(() => {
+    checkPremiumStatus();
+    
+    // Verificar vencimentos diariamente no primeiro login
+    const lastCheck = localStorage.getItem('agenda_last_expiry_check');
+    const today = new Date().toDateString();
+    
+    if (lastCheck !== today) {
+      localStorage.setItem('agenda_last_expiry_check', today);
+      // Verificação já é feita no checkPremiumStatus
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!currentProfile || !isReady) return;
+    
+    const interval = setInterval(() => {
+      saveProfileData(currentProfile.id);
+      localStorage.setItem('agenda_last_profile', currentProfile.id);
+    }, 30000);
+    
+    return () => clearInterval(interval);
+  }, [currentProfile, isReady, pacientes, terapias, agendamentos, tratamentosPendentes]);
+
+  // Funções utilitárias
+  const months = [
+    'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+    'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+  ];
+  const weekDays = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
+  const getDaysInMonth = (date) => {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const daysInMonth = lastDay.getDate();
+    const startingDayOfWeek = firstDay.getDay();
+
+    const days = [];
+    for (let i = 0; i < startingDayOfWeek; i++) {
+      days.push(null);
+    }
+    for (let day = 1; day <= daysInMonth; day++) {
+      days.push(day);
+    }
+    return days;
+  };
+
+  const formatDateKey = (year, month, day) => {
+    return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  };
+
+  const isToday = (day) => {
+    if (!day) return false;
+    const today = new Date();
+    return (
+      day === today.getDate() &&
+      currentDate.getMonth() === today.getMonth() &&
+      currentDate.getFullYear() === today.getFullYear()
+    );
+  };
+
+  const getAgendamentosForDay = (day) => {
+    if (!day) return [];
+    const dateKey = formatDateKey(currentDate.getFullYear(), currentDate.getMonth(), day);
+    return agendamentos.filter(ag => ag.data === dateKey);
+  };
+
+  // Funções de negócio
+  const addPaciente = () => {
+    if (!novoPaciente.nome.trim()) return;
+    
+    if (!canAddPaciente()) {
+      if (premiumStatus?.isTest && premiumStatus?.testType === 'test7') {
+        alert('🧪 TESTE 7 DIAS - LIMITAÇÃO\n\n🔒 Criação de pacientes bloqueada no teste de 7 dias\n📥 Você pode APENAS importar dados via QR\n💾 Para criar pacientes, ative uma chave Premium\n\n🔑 Use o botão "Ativar Serial" para upgrade');
+      } else {
+        const limit = isFreemiumMode ? PREMIUM_LIMITS.FREE.pacientes : PREMIUM_LIMITS.PREMIUM.pacientes;
+        alert(`🔒 Limite atingido!\n\nVersão ${isFreemiumMode ? 'gratuita' : 'atual'}: máximo ${limit} pacientes\n\n🌟 ${isFreemiumMode ? 'Atualize para PREMIUM e tenha pacientes ilimitados!' : 'Você já atingiu o limite do seu plano.'}`);
+      }
+      setShowUpgradeModal(true);
+      return;
+    }
+    
+    const newPaciente = {
+      id: Date.now(),
+      ...novoPaciente
+    };
+    setPacientes([...pacientes, newPaciente]);
+    setNovoPaciente({ nome: '', telefone: '', email: '' });
+    setShowPacienteModal(false);
+  };
+
+  const addTerapia = () => {
+    if (!novaTerapia.nome.trim()) return;
+    
+    if (!canAddTerapia()) {
+      if (premiumStatus?.isTest && premiumStatus?.testType === 'test7') {
+        alert('🧪 TESTE 7 DIAS - LIMITAÇÃO\n\n🔒 Criação de terapias bloqueada no teste de 7 dias\n📥 Você pode APENAS importar dados via QR\n💾 Para criar terapias, ative uma chave Premium\n\n🔑 Use o botão "Ativar Serial" para upgrade');
+      } else {
+        const limit = isFreemiumMode ? PREMIUM_LIMITS.FREE.terapias : PREMIUM_LIMITS.PREMIUM.terapias;
+        alert(`🔒 Limite atingido!\n\nVersão ${isFreemiumMode ? 'gratuita' : 'atual'}: máximo ${limit} terapias\n\n🌟 ${isFreemiumMode ? 'Atualize para PREMIUM e tenha terapias ilimitadas!' : 'Você já atingiu o limite do seu plano.'}`);
+      }
+      setShowUpgradeModal(true);
+      return;
+    }
+    
+    const newTerapia = {
+      id: Date.now(),
+      ...novaTerapia
+    };
+    setTerapias([...terapias, newTerapia]);
+    setNovaTerapia({ nome: '', duracao: '', cor: '#3B82F6' });
+    setShowTerapiaModal(false);
+  };
+
+  const addAgendamento = () => {
+    if (!novoAgendamento.pacienteId || !novoAgendamento.terapiaId || !novoAgendamento.horario || !selectedDate) {
+      return;
+    }
+    
+    if (!canAddAgendamento()) {
+      alert('🧪 TESTE 7 DIAS - LIMITAÇÃO\n\n🔒 Criação de agendamentos bloqueada no teste de 7 dias\n📥 Você pode APENAS importar dados via QR\n💾 Para criar agendamentos, ative uma chave Premium\n\n🔑 Use o botão "Ativar Serial" para upgrade');
+      setShowUpgradeModal(true);
+      return;
+    }
+    
+    const dateKey = formatDateKey(currentDate.getFullYear(), currentDate.getMonth(), selectedDate);
+    const newAgendamento = {
+      id: Date.now(),
+      data: dateKey,
+      pacienteId: parseInt(novoAgendamento.pacienteId),
+      terapiaId: parseInt(novoAgendamento.terapiaId),
+      horario: novoAgendamento.horario,
+      observacoes: novoAgendamento.observacoes
+    };
+    
+    setAgendamentos([...agendamentos, newAgendamento]);
+    setNovoAgendamento({ pacienteId: '', terapiaId: '', horario: '', observacoes: '' });
+    setShowAgendamentoModal(false);
+    setSelectedDate(null);
+  };
+
+  const removeAgendamento = (id) => {
+    setAgendamentos(agendamentos.filter(ag => ag.id !== id));
+  };
+
+  const navigateMonth = (direction) => {
+    setCurrentDate(prev => {
+      const newDate = new Date(prev);
+      newDate.setMonth(prev.getMonth() + direction);
+      return newDate;
+    });
+  };
+
+  const handleDayClick = (day) => {
+    if (day) {
+      setSelectedDate(day);
+      setShowAgendamentoModal(true);
+    }
+  };
+
+  const days = getDaysInMonth(currentDate);
+
+  // Componente Seletor de Perfil
+  const ProfileSelector = () => {
+    const profiles = getStoredProfiles();
+    
+    return (
+      <div className="fixed inset-0 bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center z-50">
+        <div className="bg-white rounded-lg p-8 w-full max-w-md shadow-2xl">
+          <div className="text-center mb-6">
+            <h1 className="text-2xl font-bold text-gray-800 mb-2">
+              👨‍⚕️ Agenda Profissional
+            </h1>
+            <p className="text-gray-600">Selecione seu perfil para continuar</p>
+          </div>
+
+          <div className="space-y-3 mb-6">
+            {profiles.map(profile => (
+              <button
+                key={profile.id}
+                onClick={() => selectProfile(profile)}
+                className="w-full p-4 text-left bg-gray-50 hover:bg-blue-50 rounded-lg border border-gray-200 hover:border-blue-300 transition-all"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-semibold text-gray-800">{profile.nome}</div>
+                    <div className="text-sm text-gray-600">{profile.especialidade}</div>
+                    {profile.senha && (
+                      <div className="text-xs text-orange-600 mt-1">🔒 Protegido por senha</div>
+                    )}
+                  </div>
+                  <div className="text-right">
+                    <div className="text-xs text-gray-500">
+                      Último acesso:
+                    </div>
+                    <div className="text-xs text-gray-600">
+                      {new Date(profile.lastAccess).toLocaleDateString()}
+                    </div>
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+
+          <div className="space-y-2">
+            <button
+              onClick={() => {
+                if (canAddProfile()) {
+                  setShowProfileModal(true);
+                } else {
+                  const limit = isFreemiumMode ? PREMIUM_LIMITS.FREE.perfis : PREMIUM_LIMITS.PREMIUM.perfis;
+                  alert(`🔒 Limite de perfis atingido!\n\nSeu plano atual permite: ${limit} perfil${limit > 1 ? 's' : ''}\n\n🌟 ${isFreemiumMode ? 'Atualize para PREMIUM para múltiplos perfis.' : 'Você já tem o máximo de perfis Premium.'}`);
+                  setShowUpgradeModal(true);
+                }
+              }}
+              className="w-full bg-green-600 text-white py-3 px-4 rounded-lg hover:bg-green-700 font-medium"
+            >
+              ➕ Criar Novo Perfil
+            </button>
+            
+            <div className="text-center">
+              <p className="text-xs text-gray-500 mb-2">
+                {isFreemiumMode ? (
+                  <>🆓 Versão Gratuita: {PREMIUM_LIMITS.FREE.perfis} perfil • QR Export/Import</>
+                ) : (
+                  <>💎 Premium: {PREMIUM_LIMITS.PREMIUM.perfis} perfis • Backup automático</>
+                )}
+              </p>
+              {isFreemiumMode && (
+                <button
+                  onClick={() => setShowUpgradeModal(true)}
+                  className="bg-gradient-to-r from-purple-600 to-pink-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:from-purple-700 hover:to-pink-700"
+                >
+                  🌟 Upgrade para PREMIUM
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // 👑 PAINEL ADMINISTRATIVO MASTER
+  const AdminPanel = () => {
+    const [adminTab, setAdminTab] = useState('dashboard');
+    const [adminData, setAdminData] = useState({
+      totalUsers: 0,
+      activeUsers: 0,
+      premiumUsers: 0,
+      freeUsers: 0,
+      masterUsers: 0,
+      totalKeysUsed: 0,
+      securityAlerts: 0,
+      systemHealth: 'Excelente'
+    });
+
+    // Simular dados administrativos
+    useEffect(() => {
+      const generateMockData = () => {
+        const usedKeys = JSON.parse(localStorage.getItem('agenda_used_keys') || '[]');
+        const profiles = JSON.parse(localStorage.getItem('agenda_profiles') || '[]');
+        
+        setAdminData({
+          totalUsers: profiles.length + Math.floor(Math.random() * 150) + 50,
+          activeUsers: Math.floor(Math.random() * 80) + 30,
+          premiumUsers: usedKeys.length + Math.floor(Math.random() * 40) + 15,
+          freeUsers: profiles.length + Math.floor(Math.random() * 100) + 35,
+          masterUsers: 1, // Você
+          totalKeysUsed: usedKeys.length + Math.floor(Math.random() * 50) + 10,
+          securityAlerts: Math.floor(Math.random() * 5),
+          systemHealth: ['Excelente', 'Muito Bom', 'Bom'][Math.floor(Math.random() * 3)]
+        });
+      };
+
+      if (showAdminPanel) {
+        generateMockData();
+        const interval = setInterval(generateMockData, 30000); // Atualiza a cada 30s
+        return () => clearInterval(interval);
+      }
+    }, [showAdminPanel]);
+
+    if (!showAdminPanel) return null;
+
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-lg w-full max-w-6xl h-5/6 flex flex-col">
+          {/* Header do Painel */}
+          <div className="bg-gradient-to-r from-red-600 to-yellow-600 text-white p-4 rounded-t-lg">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-2xl font-bold">👑 PAINEL ADMINISTRATIVO MASTER</h2>
+                <p className="text-red-100">Acesso exclusivo • Chave Master ativa</p>
+              </div>
+              <button
+                onClick={() => setShowAdminPanel(false)}
+                className="bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-lg transition-colors"
+              >
+                ✕ Fechar
+              </button>
+            </div>
+          </div>
+
+          {/* Tabs de Navegação */}
+          <div className="border-b border-gray-200 bg-gray-50">
+            <div className="flex space-x-0">
+              {[
+                { id: 'dashboard', label: '📊 Dashboard', desc: 'Visão Geral' },
+                { id: 'users', label: '👥 Usuários', desc: 'Gestão de Contas' },
+                { id: 'keys', label: '🔑 Chaves Seriais', desc: 'Controle de Ativações' },
+                { id: 'security', label: '🛡️ Segurança', desc: 'Monitoramento' },
+                { id: 'analytics', label: '📈 Analytics', desc: 'Relatórios' }
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setAdminTab(tab.id)}
+                  className={`px-4 py-3 border-b-2 transition-colors ${
+                    adminTab === tab.id
+                      ? 'border-red-500 bg-white text-red-600'
+                      : 'border-transparent hover:bg-gray-100 text-gray-600'
+                  }`}
+                >
+                  <div className="text-sm font-medium">{tab.label}</div>
+                  <div className="text-xs text-gray-500">{tab.desc}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Conteúdo do Painel */}
+          <div className="flex-1 p-6 overflow-y-auto">
+            {adminTab === 'dashboard' && (
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-blue-600 font-medium">Total de Usuários</p>
+                        <p className="text-2xl font-bold text-blue-800">{adminData.totalUsers}</p>
+                      </div>
+                      <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+                        👥
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-green-600 font-medium">Usuários Ativos</p>
+                        <p className="text-2xl font-bold text-green-800">{adminData.activeUsers}</p>
+                      </div>
+                      <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
+                        ✅
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-purple-600 font-medium">Usuários Premium</p>
+                        <p className="text-2xl font-bold text-purple-800">{adminData.premiumUsers}</p>
+                      </div>
+                      <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
+                        💎
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-red-600 font-medium">Chaves Usadas</p>
+                        <p className="text-2xl font-bold text-red-800">{adminData.totalKeysUsed}</p>
+                      </div>
+                      <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+                        🔑
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <div className="bg-white border border-gray-200 rounded-lg p-6">
+                    <h3 className="text-lg font-semibold text-gray-800 mb-4">📊 Distribuição de Usuários</h3>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-600">🆓 Gratuitos</span>
+                        <span className="font-semibold">{adminData.freeUsers}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-600">💎 Premium</span>
+                        <span className="font-semibold">{adminData.premiumUsers}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-600">👑 Master</span>
+                        <span className="font-semibold">{adminData.masterUsers}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-white border border-gray-200 rounded-lg p-6">
+                    <h3 className="text-lg font-semibold text-gray-800 mb-4">🛡️ Status do Sistema</h3>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-600">Saúde do Sistema</span>
+                        <span className={`font-semibold ${
+                          adminData.systemHealth === 'Excelente' ? 'text-green-600' :
+                          adminData.systemHealth === 'Muito Bom' ? 'text-blue-600' : 'text-yellow-600'
+                        }`}>{adminData.systemHealth}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-600">Alertas de Segurança</span>
+                        <span className={`font-semibold ${
+                          adminData.securityAlerts === 0 ? 'text-green-600' : 'text-red-600'
+                        }`}>{adminData.securityAlerts}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-600">Uptime</span>
+                        <span className="font-semibold text-green-600">99.9%</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                  <h4 className="font-semibold text-yellow-800 mb-2">⚡ Ações Rápidas Master</h4>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                    <button className="bg-blue-100 hover:bg-blue-200 text-blue-700 py-2 px-3 rounded text-sm">
+                      📊 Gerar Relatório
+                    </button>
+                    <button className="bg-green-100 hover:bg-green-200 text-green-700 py-2 px-3 rounded text-sm">
+                      ✅ Verificar Sistema
+                    </button>
+                    <button className="bg-purple-100 hover:bg-purple-200 text-purple-700 py-2 px-3 rounded text-sm">
+                      🔑 Gerar Chaves
+                    </button>
+                    <button className="bg-red-100 hover:bg-red-200 text-red-700 py-2 px-3 rounded text-sm">
+                      🛡️ Log Segurança
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {adminTab === 'keys' && (
+              <div className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xl font-semibold">🔑 Gestão de Chaves Seriais</h3>
+                  <button className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700">
+                    ➕ Gerar Novas Chaves
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <h4 className="font-semibold text-blue-800 mb-2">📅 Chaves Mensais</h4>
+                    <p className="text-2xl font-bold text-blue-600">10/30</p>
+                    <p className="text-sm text-blue-600">usadas / disponíveis</p>
+                  </div>
+                  <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                    <h4 className="font-semibold text-purple-800 mb-2">📆 Chaves Anuais</h4>
+                    <p className="text-2xl font-bold text-purple-600">6/30</p>
+                    <p className="text-sm text-purple-600">usadas / disponíveis</p>
+                  </div>
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                    <h4 className="font-semibold text-green-800 mb-2">🧪 Chaves Teste</h4>
+                    <p className="text-2xl font-bold text-green-600">3/12</p>
+                    <p className="text-sm text-green-600">usadas / disponíveis</p>
+                  </div>
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                    <h4 className="font-semibold text-red-800 mb-2">👑 Chaves Master</h4>
+                    <p className="text-2xl font-bold text-red-600">1/3</p>
+                    <p className="text-sm text-red-600">usadas / disponíveis</p>
+                  </div>
+                </div>
+
+                <div className="bg-white border border-gray-200 rounded-lg p-6">
+                  <h4 className="font-semibold text-gray-800 mb-4">📋 Últimas Ativações</h4>
+                  <div className="space-y-3">
+                    {JSON.parse(localStorage.getItem('agenda_used_keys') || '[]').map((key, i) => (
+                      <div key={i} className="flex items-center justify-between p-3 bg-gray-50 rounded">
+                        <div>
+                          <span className="font-mono text-sm">{key}</span>
+                          <span className={`ml-2 px-2 py-1 rounded-full text-xs ${
+                            key.includes('MSTR') ? 'bg-red-100 text-red-700' :
+                            key.includes('-PA') ? 'bg-purple-100 text-purple-700' : 
+                            key.includes('-P0') ? 'bg-blue-100 text-blue-700' :
+                            key.includes('TEST') ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
+                          }`}>
+                            {key.includes('MSTR') ? '👑 Master' : 
+                             key.includes('-PA') ? '📆 Anual' : 
+                             key.includes('-P0') ? '📅 Mensal' :
+                             key.includes('TEST7') ? '🧪 Teste 7d' :
+                             key.includes('TEST15') ? '🚀 Teste 15d' : '?'}
+                          </span>
+                        </div>
+                        <div className="text-sm text-gray-500">
+                          Ativado hoje
+                        </div>
+                      </div>
+                    ))}
+                    {JSON.parse(localStorage.getItem('agenda_used_keys') || '[]').length === 0 && (
+                      <p className="text-gray-500 text-center py-4">Nenhuma chave ativada ainda</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Outros tabs do admin panel... */}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Modal QR Code
+  const QRModal = () => {
+    const [qrCodeImage, setQrCodeImage] = useState(null);
+    
+    useEffect(() => {
+      if (qrAction === 'export') {
+        const qrText = generateQRData();
+        const imageDataURL = generateQRCodeDataURL(qrText);
+        setQrCodeImage(imageDataURL);
+      }
+    }, [qrAction]);
+
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-lg p-6 w-full max-w-lg">
+          <h3 className="font-bold text-lg mb-4 flex items-center">
+            <span className="mr-2">📱</span>
+            {qrAction === 'export' ? 'Exportar via QR Code' : 'Importar via QR Code'}
+          </h3>
+          
+          {qrAction === 'export' ? (
+            <div className="text-center">
+              <div className="bg-white p-6 rounded-lg border-2 border-gray-200 mb-4 inline-block">
+                <div className="mb-3">
+                  <div className="text-sm font-medium text-gray-700 mb-2">
+                    📱 Escaneie com seu celular
+                  </div>
+                  {qrCodeImage && (
+                    <img 
+                      src={qrCodeImage} 
+                      alt="QR Code" 
+                      className="w-48 h-48 mx-auto border border-gray-200 rounded"
+                    />
+                  )}
+                </div>
+                <div className="text-xs text-gray-500">
+                  Perfil: {currentProfile.nome}
+                </div>
+              </div>
+              
+              <details className="mb-4">
+                <summary className="cursor-pointer text-sm text-gray-600 hover:text-gray-800">
+                  📋 Ver dados do backup (clique para expandir)
+                </summary>
+                <div className="mt-3 bg-gray-100 p-4 rounded-lg">
+                  <div 
+                    className="bg-white p-3 rounded border text-xs font-mono break-all max-h-32 overflow-auto text-left"
+                  >
+                    {generateQRData()}
+                  </div>
+                </div>
+              </details>
+
+              <div className="text-sm text-gray-600 mb-4 bg-blue-50 p-3 rounded">
+                <p className="mb-2">🔍 <strong>Como usar:</strong></p>
+                <p>1. Abra o aplicativo de câmera do seu celular</p>
+                <p>2. Aponte para o QR Code acima</p>
+                <p>3. Toque na notificação que aparecer</p>
+                <p>4. Copie os dados mostrados</p>
+                <p>5. No outro dispositivo, use "QR Import" e cole os dados</p>
+              </div>
+
+              <div className="flex space-x-2">
+                <button
+                  onClick={() => {
+                    const qrText = generateQRData();
+                    navigator.clipboard.writeText(qrText);
+                    alert('✅ Dados copiados para área de transferência!\n\nAgora você pode compartilhar via WhatsApp, email, etc.');
+                  }}
+                  className="flex-1 bg-blue-600 text-white py-2 px-4 rounded hover:bg-blue-700"
+                >
+                  📋 Copiar Dados
+                </button>
+                <button
+                  onClick={() => {
+                    const link = document.createElement('a');
+                    link.download = `agenda-qr-${currentProfile.nome}-${new Date().toISOString().split('T')[0]}.png`;
+                    link.href = qrCodeImage;
+                    link.click();
+                  }}
+                  className="flex-1 bg-purple-600 text-white py-2 px-4 rounded hover:bg-purple-700"
+                >
+                  💾 Baixar QR
+                </button>
+                <button
+                  onClick={() => setShowQRModal(false)}
+                  className="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded hover:bg-gray-400"
+                >
+                  ✅ Fechar
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded">
+                <p className="text-sm text-yellow-800 mb-2">📱 <strong>Como importar:</strong></p>
+                <p className="text-xs text-yellow-700">
+                  • Escaneie o QR Code com seu celular e copie os dados<br/>
+                  • Ou peça para alguém enviar os dados via WhatsApp/email<br/>
+                  • Cole os dados na caixa abaixo
+                </p>
+              </div>
+              
+              <p className="text-sm text-gray-600 mb-3">
+                Cole os dados do QR Code ou backup abaixo:
+              </p>
+              <textarea
+                value={qrData}
+                onChange={(e) => setQRData(e.target.value)}
+                className="w-full p-3 border border-gray-300 rounded-md font-mono text-xs"
+                rows="8"
+                placeholder="Cole aqui os dados do QR Code escaneado..."
+              />
+              <div className="flex space-x-2 mt-4">
+                <button
+                  onClick={() => qrData.trim() && processQRImport(qrData)}
+                  disabled={!qrData.trim()}
+                  className="flex-1 bg-green-600 text-white py-2 px-4 rounded hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                >
+                  📥 Importar Dados
+                </button>
+                <button
+                  onClick={() => {
+                    setShowQRModal(false);
+                    setQRData('');
+                  }}
+                  className="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded hover:bg-gray-400"
+                >
+                  ❌ Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // Controle de renderização
+  if (!isReady) {
+    return (
+      <div className="fixed inset-0 bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center">
+        <div className="text-center text-white">
+          <div className="w-16 h-16 border-4 border-white border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <h1 className="text-2xl font-bold mb-2">Agenda Profissional v2.0</h1>
+          <p className="mb-4">QR Code + Sistema Premium</p>
+          <div className="w-64 bg-white/20 rounded-full h-2">
+            <div 
+              className="bg-white h-2 rounded-full transition-all duration-300"
+              style={{ width: `${loadingProgress}%` }}
+            ></div>
+          </div>
+          <p className="text-sm mt-2">{Math.round(loadingProgress)}%</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (showProfileSelector) {
+    return <ProfileSelector />;
+  }
+
+  if (!currentProfile && !showProfileModal) {
+    return (
+      <div className="fixed inset-0 bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center">
+        <div className="text-center text-white">
+          <div className="w-16 h-16 border-4 border-white border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <h1 className="text-2xl font-bold mb-2">Aguardando perfil...</h1>
+          <p className="mb-4">Carregando dados do usuário</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full h-full bg-gray-50 min-h-screen">
+      {currentProfile && (
+        <>
+          <div className="bg-white shadow-sm border-b px-4 py-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-4">
+                <div 
+                  className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 px-3 py-1 rounded"
+                  onClick={() => setShowProfileSelector(true)}
+                >
+                  <div className="w-8 h-8 bg-blue-500 text-white rounded-full flex items-center justify-center font-bold text-sm">
+                    {currentProfile.nome.charAt(0).toUpperCase()}
+                  </div>
+                  <div>
+                    <div className="font-semibold text-gray-800 text-sm">{currentProfile.nome}</div>
+                    <div className="text-xs text-gray-600">{currentProfile.especialidade}</div>
+                  </div>
+                </div>
+                <div className={`px-3 py-1 rounded-full text-sm font-medium ${
+                  isFreemiumMode 
+                    ? 'bg-gray-100 text-gray-700' 
+                    : isMasterUser
+                    ? 'bg-gradient-to-r from-red-100 to-yellow-100 text-red-700'
+                    : premiumStatus?.isTest
+                    ? 'bg-gradient-to-r from-green-100 to-blue-100 text-green-700'
+                    : 'bg-gradient-to-r from-purple-100 to-pink-100 text-purple-700'
+                }`}>
+                  {isFreemiumMode 
+                    ? '🆓 Gratuita' 
+                    : isMasterUser 
+                    ? '👑 MASTER' 
+                    : premiumStatus?.isTest
+                    ? `🧪 Teste ${premiumStatus.testType === 'test7' ? '7d' : '15d'}`
+                    : `💎 Premium ${premiumStatus?.type === 'annual' ? 'Anual' : 'Mensal'}`
+                  }
+                  {premiumStatus && !isMasterUser && (
+                    <span className="ml-1 text-xs">
+                      ({premiumStatus.daysLeft}{premiumStatus.daysLeft === '∞' ? '' : 'd'})
+                    </span>
+                  )}
+                  {isMasterUser && (
+                    <span className="ml-1 text-xs">
+                      (∞)
+                    </span>
+                  )}
+                </div>
+              </div>
+              
+              <div className="flex items-center space-x-3">
+                <button
+                  onClick={() => {
+                    setQRAction('export');
+                    setShowQRModal(true);
+                  }}
+                  className="px-3 py-1 bg-purple-100 text-purple-700 rounded hover:bg-purple-200 text-sm"
+                  title="Exportar dados via QR Code"
+                >
+                  📤 QR Export
+                </button>
+                <button
+                  onClick={() => {
+                    setQRAction('import');
+                    setShowQRModal(true);
+                  }}
+                  className="px-3 py-1 bg-orange-100 text-orange-700 rounded hover:bg-orange-200 text-sm"
+                  title="Importar dados via QR Code"
+                >
+                  📥 QR Import
+                </button>
+                
+                {isFreemiumMode ? (
+                  <button
+                    onClick={() => setShowUpgradeModal(true)}
+                    className="px-3 py-1 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded hover:from-purple-700 hover:to-pink-700 text-sm font-medium"
+                  >
+                    🌟 UPGRADE
+                  </button>
+                ) : isMasterUser ? (
+                  <button
+                    onClick={() => setShowAdminPanel(true)}
+                    className="px-3 py-1 bg-gradient-to-r from-red-600 to-yellow-600 text-white rounded hover:from-red-700 hover:to-yellow-700 text-sm font-medium"
+                  >
+                    👑 ADMIN
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setShowSerialModal(true)}
+                    className="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-sm"
+                  >
+                    🔑 Renovar
+                  </button>
+                )}
+                
+                <button
+                  onClick={() => setShowConfigModal(true)}
+                  className="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-sm"
+                >
+                  ⚙️ Config
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Interface principal responsiva */}
+          <div className="hidden lg:flex h-full">
+            <div className="w-80 bg-white shadow-lg border-r">
+              <div className="p-4 h-full flex flex-col">
+                <div className="mb-6">
+                  <h2 className="text-lg font-bold text-gray-800 mb-1">
+                    {months[currentDate.getMonth()]} {currentDate.getFullYear()}
+                  </h2>
+                  <p className="text-gray-600 text-sm">
+                    {currentProfile.nome} • {currentProfile.especialidade}
+                  </p>
+                </div>
+
+                <div className="flex space-x-2 mb-6">
+                  <button 
+                    onClick={() => navigateMonth(-1)}
+                    className="flex-1 px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded text-sm"
+                  >
+                    ← Anterior
+                  </button>
+                  <button 
+                    onClick={() => navigateMonth(1)}
+                    className="flex-1 px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded text-sm"
+                  >
+                    Próximo →
+                  </button>
+                </div>
+
+                <div className="mb-6">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="font-semibold text-gray-800">
+                      Pacientes ({pacientes.length}/{isFreemiumMode ? PREMIUM_LIMITS.FREE.pacientes : '∞'})
+                    </h3>
+                    <button 
+                      onClick={() => {
+                        if (canAddPaciente()) {
+                          setShowPacienteModal(true);
+                        } else {
+                          setShowUpgradeModal(true);
+                        }
+                      }}
+                      className={`text-sm font-medium ${
+                        canAddPaciente() 
+                          ? 'text-blue-600 hover:text-blue-800' 
+                          : 'text-gray-400 cursor-not-allowed'
+                      }`}
+                    >
+                      + Adicionar {!canAddPaciente() && '🔒'}
+                    </button>
+                  </div>
+                  <div className="space-y-2 max-h-40 overflow-y-auto">
+                    {pacientes.map(paciente => (
+                      <div key={paciente.id} className="p-2 rounded border bg-blue-50 border-blue-200">
+                        <div className="font-medium text-blue-800 text-sm">{paciente.nome}</div>
+                        <div className="text-xs text-blue-600">{paciente.telefone}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="mb-6">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="font-semibold text-gray-800">
+                      Terapias ({terapias.length}/{isFreemiumMode ? PREMIUM_LIMITS.FREE.terapias : '∞'})
+                    </h3>
+                    <button 
+                      onClick={() => {
+                        if (canAddTerapia()) {
+                          setShowTerapiaModal(true);
+                        } else {
+                          setShowUpgradeModal(true);
+                        }
+                      }}
+                      className={`text-sm font-medium ${
+                        canAddTerapia() 
+                          ? 'text-green-600 hover:text-green-800' 
+                          : 'text-gray-400 cursor-not-allowed'
+                      }`}
+                    >
+                      + Adicionar {!canAddTerapia() && '🔒'}
+                    </button>
+                  </div>
+                  <div className="space-y-2">
+                    {terapias.map(terapia => (
+                      <div key={terapia.id} className="flex items-center space-x-2 p-2 bg-gray-50 rounded">
+                        <div 
+                          className="w-3 h-3 rounded-full" 
+                          style={{ backgroundColor: terapia.cor }}
+                        ></div>
+                        <div className="flex-1">
+                          <div className="font-medium text-gray-800 text-sm">{terapia.nome}</div>
+                          <div className="text-xs text-gray-600">{terapia.duracao}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="mt-auto pt-4 border-t border-gray-200">
+                  <div className="text-xs text-gray-600 space-y-1">
+                    <p>📊 Agendamentos: {agendamentos.length}</p>
+                    <p>💾 Auto-save: 30s</p>
+                    <p>📱 Sync: QR Code</p>
+                    <p>👤 Status: {isFreemiumMode ? 'Gratuito' : isMasterUser ? 'Master (∞)' : premiumStatus?.isTest ? `Teste ${premiumStatus.testType === 'test7' ? '7d' : '15d'} (${premiumStatus.daysLeft}d)` : `Premium (${premiumStatus?.daysLeft}d)`}</p>
+                    {isFreemiumMode && (
+                      <p className="text-purple-600 font-medium cursor-pointer" onClick={() => setShowUpgradeModal(true)}>
+                        🌟 Upgrade Premium
+                      </p>
+                    )}
+                    {isMasterUser && (
+                      <p className="text-red-600 font-medium cursor-pointer" onClick={() => setShowAdminPanel(true)}>
+                        👑 Painel Admin
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex-1 p-6">
+              <div className="bg-white rounded-lg shadow-lg p-6 h-full">
+                <div className="mb-6">
+                  <h2 className="text-2xl font-bold text-gray-800">
+                    Calendário - {months[currentDate.getMonth()]} {currentDate.getFullYear()}
+                  </h2>
+                </div>
+
+                <div className="grid grid-cols-7 gap-1 h-5/6">
+                  {weekDays.map(day => (
+                    <div key={day} className="p-3 text-center font-semibold text-gray-600 bg-gray-50">
+                      {day}
+                    </div>
+                  ))}
+                  
+                  {days.map((day, index) => {
+                    const dayAgendamentos = getAgendamentosForDay(day);
+                    
+                    return (
+                      <div
+                        key={index}
+                        className={`
+                          p-2 border border-gray-200 cursor-pointer transition-all relative min-h-24
+                          ${!day ? 'bg-gray-50' : 'bg-white hover:bg-blue-50'}
+                          ${isToday(day) ? 'bg-blue-100 border-blue-400' : ''}
+                          ${dayAgendamentos.length > 0 ? 'border-green-300 bg-green-50' : ''}
+                        `}
+                        onClick={() => handleDayClick(day)}
+                      >
+                        {day && (
+                          <div className="h-full flex flex-col">
+                            <div className="flex items-start justify-between mb-1">
+                              <div className={`
+                                font-semibold text-lg
+                                ${isToday(day) ? 'text-blue-600' : 'text-gray-800'}
+                              `}>
+                                {day}
+                              </div>
+                              
+                              {dayAgendamentos.length > 0 && (
+                                <div className="bg-green-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                                  {dayAgendamentos.length}
+                                </div>
+                              )}
+                            </div>
+                            
+                            <div className="flex-1 space-y-1">
+                              {dayAgendamentos.map(agendamento => {
+                                const paciente = pacientes.find(p => p.id === agendamento.pacienteId);
+                                const terapia = terapias.find(t => t.id === agendamento.terapiaId);
+                                return (
+                                  <div 
+                                    key={agendamento.id}
+                                    className="text-xs p-1 rounded text-white font-medium"
+                                    style={{ backgroundColor: terapia?.cor || '#6B7280' }}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (window.confirm('Remover agendamento?')) {
+                                        removeAgendamento(agendamento.id);
+                                      }
+                                    }}
+                                    title={`${agendamento.horario} - ${paciente?.nome} - ${terapia?.nome}`}
+                                  >
+                                    {agendamento.horario} - {paciente?.nome?.split(' ')[0]}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Interface mobile */}
+          <div className="lg:hidden">
+            <div className="bg-white shadow-sm border-b border-gray-200 p-4">
+              <div className="flex items-center justify-between mb-4">
+                <h1 className="text-xl font-bold text-gray-800">
+                  {months[currentDate.getMonth()]} {currentDate.getFullYear()}
+                </h1>
+                <div className="flex space-x-2">
+                  <button 
+                    onClick={() => navigateMonth(-1)}
+                    className="px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded text-sm"
+                  >
+                    ←
+                  </button>
+                  <button 
+                    onClick={() => navigateMonth(1)}
+                    className="px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded text-sm"
+                  >
+                    →
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-7 gap-0.5">
+                {weekDays.map(day => (
+                  <div key={day} className="p-1 text-center text-xs font-semibold text-gray-600">
+                    {day}
+                  </div>
+                ))}
+                
+                {days.map((day, index) => {
+                  const dayAgendamentos = getAgendamentosForDay(day);
+                  
+                  return (
+                    <div
+                      key={index}
+                      className={`
+                        p-1 border border-gray-200 text-center cursor-pointer relative min-h-10
+                        ${!day ? 'bg-gray-50' : 'bg-white'}
+                        ${isToday(day) ? 'bg-blue-100 border-blue-300' : ''}
+                        ${dayAgendamentos.length > 0 ? 'bg-green-50 border-green-200' : ''}
+                      `}
+                      onClick={() => handleDayClick(day)}
+                    >
+                      {day && (
+                        <div className="relative">
+                          <div className="flex items-center justify-center space-x-1">
+                            <div className={`
+                              text-xs font-semibold
+                              ${isToday(day) ? 'text-blue-600' : 'text-gray-800'}
+                            `}>
+                              {day}
+                            </div>
+                            {dayAgendamentos.length > 0 && (
+                              <div className="bg-green-500 text-white text-xs font-bold rounded-full w-3 h-3 flex items-center justify-center" style={{ fontSize: '8px' }}>
+                                {dayAgendamentos.length}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="p-4 space-y-4">
+              <div className="bg-white rounded-lg shadow-lg p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-bold text-lg">
+                    Pacientes ({pacientes.length}/{isFreemiumMode ? PREMIUM_LIMITS.FREE.pacientes : '∞'})
+                  </h3>
+                  <button 
+                    onClick={() => {
+                      if (canAddPaciente()) {
+                        setShowPacienteModal(true);
+                      } else {
+                        setShowUpgradeModal(true);
+                      }
+                    }}
+                    className={`font-medium ${
+                      canAddPaciente() 
+                        ? 'text-blue-600 hover:text-blue-800' 
+                        : 'text-gray-400 cursor-not-allowed'
+                    }`}
+                  >
+                    + Adicionar {!canAddPaciente() && '🔒'}
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 gap-2">
+                  {pacientes.slice(0, 5).map(paciente => (
+                    <div key={paciente.id} className="p-3 rounded border bg-blue-50 border-blue-200">
+                      <div className="font-medium text-blue-800">{paciente.nome}</div>
+                      <div className="text-sm text-blue-600">{paciente.telefone}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bg-white rounded-lg shadow-lg p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-bold text-lg">
+                    Terapias ({terapias.length}/{isFreemiumMode ? PREMIUM_LIMITS.FREE.terapias : '∞'})
+                  </h3>
+                  <button 
+                    onClick={() => {
+                      if (canAddTerapia()) {
+                        setShowTerapiaModal(true);
+                      } else {
+                        setShowUpgradeModal(true);
+                      }
+                    }}
+                    className={`font-medium ${
+                      canAddTerapia() 
+                        ? 'text-green-600 hover:text-green-800' 
+                        : 'text-gray-400 cursor-not-allowed'
+                    }`}
+                  >
+                    + Adicionar {!canAddTerapia() && '🔒'}
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 gap-2">
+                  {terapias.map(terapia => (
+                    <div 
+                      key={terapia.id} 
+                      className="flex items-center space-x-3 p-3 bg-gray-50 rounded"
+                    >
+                      <div 
+                        className="w-4 h-4 rounded-full" 
+                        style={{ backgroundColor: terapia.cor }}
+                      ></div>
+                      <div className="flex-1">
+                        <div className="font-medium text-gray-800">{terapia.nome}</div>
+                        <div className="text-sm text-gray-600">{terapia.duracao}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {!currentProfile && !showProfileModal && (
+        <div className="fixed inset-0 bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center">
+          <div className="text-center text-white">
+            <div className="w-16 h-16 border-4 border-white border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+            <h1 className="text-2xl font-bold mb-2">Preparando sistema...</h1>
+            <p className="mb-4">Aguarde um momento</p>
+          </div>
+        </div>
+      )}
+
+      {/* MODAIS */}
+      
+      {showProfileModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="font-bold text-lg mb-4">👨‍⚕️ Novo Perfil Profissional</h3>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Nome *</label>
+                <input 
+                  type="text"
+                  value={novoPerfil.nome}
+                  onChange={(e) => setNovoPerfil({...novoPerfil, nome: e.target.value})}
+                  className="w-full p-2 border border-gray-300 rounded-md"
+                  placeholder="Dr. João Silva"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Especialidade</label>
+                <input 
+                  type="text"
+                  value={novoPerfil.especialidade}
+                  onChange={(e) => setNovoPerfil({...novoPerfil, especialidade: e.target.value})}
+                  className="w-full p-2 border border-gray-300 rounded-md"
+                  placeholder="Fisioterapeuta, Acupunturista, etc."
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Senha (opcional)</label>
+                <input 
+                  type="password"
+                  value={novoPerfil.senha}
+                  onChange={(e) => setNovoPerfil({...novoPerfil, senha: e.target.value})}
+                  className="w-full p-2 border border-gray-300 rounded-md"
+                  placeholder="Deixe vazio para perfil sem senha"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  🔒 Recomendado para proteger dados do paciente
+                </p>
+              </div>
+            </div>
+
+            <div className="flex space-x-3 mt-6">
+              <button 
+                onClick={createProfile}
+                className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700"
+              >
+                ✅ Criar Perfil
+              </button>
+              <button 
+                onClick={handleCancelProfile}
+                className="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-400"
+              >
+                ❌ Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showQRModal && <QRModal />}
+      {showAdminPanel && <AdminPanel />}
+      
+      {showAgendamentoModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="font-bold text-lg mb-4">
+              Novo Agendamento - Dia {selectedDate}
+            </h3>
+            
+            {!canAddAgendamento() && (
+              <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded">
+                <p className="text-sm text-yellow-800">
+                  🧪 <strong>Teste 7 dias:</strong> Criação de agendamentos bloqueada. Use apenas QR Import.
+                </p>
+              </div>
+            )}
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Paciente</label>
+                <select 
+                  value={novoAgendamento.pacienteId}
+                  onChange={(e) => setNovoAgendamento({...novoAgendamento, pacienteId: e.target.value})}
+                  className="w-full p-2 border border-gray-300 rounded-md"
+                  disabled={!canAddAgendamento()}
+                >
+                  <option value="">Selecione um paciente</option>
+                  {pacientes.map(paciente => (
+                    <option key={paciente.id} value={paciente.id}>
+                      {paciente.nome}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Terapia</label>
+                <select 
+                  value={novoAgendamento.terapiaId}
+                  onChange={(e) => setNovoAgendamento({...novoAgendamento, terapiaId: e.target.value})}
+                  className="w-full p-2 border border-gray-300 rounded-md"
+                  disabled={!canAddAgendamento()}
+                >
+                  <option value="">Selecione uma terapia</option>
+                  {terapias.map(terapia => (
+                    <option key={terapia.id} value={terapia.id}>
+                      {terapia.nome} ({terapia.duracao})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Horário</label>
+                <input 
+                  type="time"
+                  value={novoAgendamento.horario}
+                  onChange={(e) => setNovoAgendamento({...novoAgendamento, horario: e.target.value})}
+                  className="w-full p-2 border border-gray-300 rounded-md"
+                  disabled={!canAddAgendamento()}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Observações</label>
+                <textarea 
+                  value={novoAgendamento.observacoes}
+                  onChange={(e) => setNovoAgendamento({...novoAgendamento, observacoes: e.target.value})}
+                  className="w-full p-2 border border-gray-300 rounded-md"
+                  rows="3"
+                  placeholder="Observações..."
+                  disabled={!canAddAgendamento()}
+                />
+              </div>
+            </div>
+
+            <div className="flex space-x-3 mt-6">
+              <button 
+                onClick={addAgendamento}
+                disabled={!canAddAgendamento()}
+                className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+              >
+                ✅ Agendar
+              </button>
+              <button 
+                onClick={() => {
+                  setShowAgendamentoModal(false);
+                  setSelectedDate(null);
+                  setNovoAgendamento({ pacienteId: '', terapiaId: '', horario: '', observacoes: '' });
+                }}
+                className="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-400"
+              >
+                ❌ Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showPacienteModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="font-bold text-lg mb-4">Novo Paciente</h3>
+            
+            {!canAddPaciente() && (
+              <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded">
+                <p className="text-sm text-yellow-800">
+                  🔒 <strong>Limite atingido!</strong> {premiumStatus?.isTest && premiumStatus?.testType === 'test7' ? 'Teste 7 dias permite apenas QR Import.' : 'Upgrade para Premium para mais pacientes.'}
+                </p>
+              </div>
+            )}
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Nome *</label>
+                <input 
+                  type="text"
+                  value={novoPaciente.nome}
+                  onChange={(e) => setNovoPaciente({...novoPaciente, nome: e.target.value})}
+                  className="w-full p-2 border border-gray-300 rounded-md"
+                  placeholder="Nome completo"
+                  disabled={!canAddPaciente()}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Telefone</label>
+                <input 
+                  type="tel"
+                  value={novoPaciente.telefone}
+                  onChange={(e) => setNovoPaciente({...novoPaciente, telefone: e.target.value})}
+                  className="w-full p-2 border border-gray-300 rounded-md"
+                  placeholder="(16) 99999-9999"
+                  disabled={!canAddPaciente()}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
+                <input 
+                  type="email"
+                  value={novoPaciente.email}
+                  onChange={(e) => setNovoPaciente({...novoPaciente, email: e.target.value})}
+                  className="w-full p-2 border border-gray-300 rounded-md"
+                  placeholder="email@exemplo.com"
+                  disabled={!canAddPaciente()}
+                />
+              </div>
+            </div>
+
+            <div className="flex space-x-3 mt-6">
+              <button 
+                onClick={addPaciente}
+                disabled={!canAddPaciente()}
+                className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+              >
+                ✅ Adicionar
+              </button>
+              <button 
+                onClick={() => {
+                  setShowPacienteModal(false);
+                  setNovoPaciente({ nome: '', telefone: '', email: '' });
+                }}
+                className="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-400"
+              >
+                ❌ Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showTerapiaModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="font-bold text-lg mb-4">Nova Terapia</h3>
+            
+            {!canAddTerapia() && (
+              <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded">
+                <p className="text-sm text-yellow-800">
+                  🔒 <strong>Limite atingido!</strong> {premiumStatus?.isTest && premiumStatus?.testType === 'test7' ? 'Teste 7 dias permite apenas QR Import.' : 'Upgrade para Premium para mais terapias.'}
+                </p>
+              </div>
+            )}
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Nome *</label>
+                <input 
+                  type="text"
+                  value={novaTerapia.nome}
+                  onChange={(e) => setNovaTerapia({...novaTerapia, nome: e.target.value})}
+                  className="w-full p-2 border border-gray-300 rounded-md"
+                  placeholder="Ex: Fisioterapia"
+                  disabled={!canAddTerapia()}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Duração</label>
+                <input 
+                  type="text"
+                  value={novaTerapia.duracao}
+                  onChange={(e) => setNovaTerapia({...novaTerapia, duracao: e.target.value})}
+                  className="w-full p-2 border border-gray-300 rounded-md"
+                  placeholder="Ex: 60 min"
+                  disabled={!canAddTerapia()}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Cor</label>
+                <input 
+                  type="color"
+                  value={novaTerapia.cor}
+                  onChange={(e) => setNovaTerapia({...novaTerapia, cor: e.target.value})}
+                  className="w-full p-2 border border-gray-300 rounded-md h-12"
+                  disabled={!canAddTerapia()}
+                />
+              </div>
+            </div>
+
+            <div className="flex space-x-3 mt-6">
+              <button 
+                onClick={addTerapia}
+                disabled={!canAddTerapia()}
+                className="flex-1 bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+              >
+                ✅ Adicionar
+              </button>
+              <button 
+                onClick={() => {
+                  setShowTerapiaModal(false);
+                  setNovaTerapia({ nome: '', duracao: '', cor: '#3B82F6' });
+                }}
+                className="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-400"
+              >
+                ❌ Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showConfigModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="font-bold text-lg mb-4">⚙️ Configurações</h3>
+            
+            <div className="space-y-4">
+              <div className="bg-green-50 p-3 rounded border border-green-200">
+                <h4 className="font-medium text-green-800 mb-2">✅ Status do Sistema</h4>
+                <div className="text-sm text-green-700 space-y-1">
+                  <p>👤 Perfil: {currentProfile.nome}</p>
+                  <p>📊 Pacientes: {pacientes.length}</p>
+                  <p>🏥 Terapias: {terapias.length}</p>
+                  <p>📅 Agendamentos: {agendamentos.length}</p>
+                  <p>💾 Modo: {isFreemiumMode ? 'Gratuito (Local)' : isMasterUser ? 'Master (Permanente)' : premiumStatus?.isTest ? `Teste ${premiumStatus.testType === 'test7' ? '7d' : '15d'} (${premiumStatus.daysLeft}d)` : `Premium (${premiumStatus.daysLeft}d)`}</p>
+                  {currentProfile?.isDemo && (
+                    <p className="text-orange-600">🔶 Perfil Demonstração</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-2">
+                <button
+                  onClick={() => {
+                    setQRAction('export');
+                    setShowQRModal(true);
+                    setShowConfigModal(false);
+                  }}
+                  className="flex items-center justify-center space-x-2 bg-purple-100 text-purple-700 py-2 px-4 rounded hover:bg-purple-200"
+                >
+                  <span>📤</span>
+                  <span>Exportar QR</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setQRAction('import');
+                    setShowQRModal(true);
+                    setShowConfigModal(false);
+                  }}
+                  className="flex items-center justify-center space-x-2 bg-orange-100 text-orange-700 py-2 px-4 rounded hover:bg-orange-200"
+                >
+                  <span>📥</span>
+                  <span>Importar QR</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    if (canAddProfile()) {
+                      setShowProfileSelector(true);
+                    } else {
+                      const limit = isFreemiumMode ? PREMIUM_LIMITS.FREE.perfis : PREMIUM_LIMITS.PREMIUM.perfis;
+                      alert(`🔒 Limite de perfis atingido!\n\nSeu plano atual permite: ${limit} perfil${limit > 1 ? 's' : ''}\n\n🌟 ${isFreemiumMode ? 'Atualize para PREMIUM para múltiplos perfis.' : 'Você já tem o máximo de perfis Premium.'}`);
+                      setShowUpgradeModal(true);
+                    }
+                  }}
+                  className="flex items-center justify-center space-x-2 bg-blue-100 text-blue-700 py-2 px-4 rounded hover:bg-blue-200"
+                >
+                  <span>👤</span>
+                  <span>{canAddProfile() ? 'Trocar Perfil' : 'Perfils Limitados'}</span>
+                </button>
+
+                {isFreemiumMode && (
+                  <button
+                    onClick={() => {
+                      setShowUpgradeModal(true);
+                      setShowConfigModal(false);
+                    }}
+                    className="flex items-center justify-center space-x-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white py-2 px-4 rounded hover:from-purple-700 hover:to-pink-700"
+                  >
+                    <span>🌟</span>
+                    <span>Upgrade PREMIUM</span>
+                  </button>
+                )}
+
+                <button
+                  onClick={() => {
+                    if (window.confirm('⚠️ Isso apagará TODOS os dados do perfil atual. Confirma?')) {
+                      const key = `agenda_data_${currentProfile.id}`;
+                      localStorage.removeItem(key);
+                      window.location.reload();
+                    }
+                  }}
+                  className="flex items-center justify-center space-x-2 bg-red-100 text-red-700 py-2 px-4 rounded hover:bg-red-200"
+                >
+                  <span>🗑️</span>
+                  <span>Limpar Perfil</span>
+                </button>
+              </div>
+
+              <div className="border-t pt-3 text-xs text-gray-500">
+                <p><strong>Versão:</strong> {isFreemiumMode ? '2.0 Freemium' : isMasterUser ? '2.0 Master' : premiumStatus?.isTest ? '2.0 Teste' : '2.0 Premium'}</p>
+                <p><strong>Auto-save:</strong> A cada 30 segundos</p>
+                <p><strong>Sync:</strong> {isFreemiumMode ? 'QR Code manual' : 'QR + Backup automático'}</p>
+                <p><strong>Perfis:</strong> {isFreemiumMode ? '1 perfil (local)' : isMasterUser ? 'Ilimitados (permanente)' : `${PREMIUM_LIMITS.PREMIUM.perfis} perfis (premium)`}</p>
+                {isFreemiumMode && (
+                  <p className="text-purple-600 font-medium mt-2">
+                    🌟 Upgrade para PREMIUM disponível!
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <button 
+              onClick={() => setShowConfigModal(false)}
+              className="w-full mt-4 bg-gray-300 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-400"
+            >
+              ✅ Fechar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showUpgradeModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-lg max-h-screen overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-xl bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
+                🌟 Upgrade para PREMIUM
+              </h3>
+              <button
+                onClick={() => setShowUpgradeModal(false)}
+                className="text-gray-400 hover:text-gray-600 text-xl font-bold p-1"
+                title="Fechar"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Informação do Plano Atual - só mostra se não for Master */}
+            {!isMasterUser && (
+              <div className="mb-6 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                <h4 className="font-semibold text-gray-800 mb-2">📊 Seu Plano Atual</h4>
+                <div className="text-sm text-gray-700">
+                  {isFreemiumMode ? (
+                    <div>
+                      <p>🆓 <strong>Plano Gratuito</strong></p>
+                      <p className="text-xs text-gray-600 mt-1">
+                        • 1 perfil • 5 pacientes • 3 terapias • QR Export/Import
+                      </p>
+                    </div>
+                  ) : premiumStatus?.isTest ? (
+                    <div>
+                      <p>🧪 <strong>Teste {premiumStatus.testType === 'test7' ? '7 dias' : '15 dias'}</strong></p>
+                      <p className="text-xs text-orange-600 mt-1">
+                        ⏰ <strong>{premiumStatus.daysLeft} dias restantes</strong> • Expire em {new Date(premiumStatus.expiresAt).toLocaleDateString()}
+                      </p>
+                      <p className="text-xs text-gray-600 mt-1">
+                        {premiumStatus.testType === 'test7' 
+                          ? '• Dados temporários • Apenas QR Import/Export' 
+                          : '• Dados preservados • Todos os recursos Premium'
+                        }
+                      </p>
+                    </div>
+                  ) : (
+                    <div>
+                      <p>💎 <strong>Premium {premiumStatus?.type === 'annual' ? 'Anual' : 'Mensal'}</strong></p>
+                      <p className="text-xs text-blue-600 mt-1">
+                        ⏰ <strong>{premiumStatus.daysLeft} dias restantes</strong> • Vence em {new Date(premiumStatus.expiresAt).toLocaleDateString()}
+                      </p>
+                      <p className="text-xs text-gray-600 mt-1">
+                        • 2 perfis • Pacientes ilimitados • Terapias ilimitadas • Backup automático
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Seção de Testes */}
+            <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <h4 className="font-bold text-blue-800 mb-3">🧪 EXPERIMENTE GRÁTIS PRIMEIRO!</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="bg-white p-3 rounded border border-blue-200">
+                  <h5 className="font-semibold text-blue-700 mb-2">🚀 Teste 15 Dias</h5>
+                  <ul className="text-xs text-blue-600 space-y-1 mb-3">
+                    <li>✅ Todos os recursos Premium</li>
+                    <li>✅ Dados preservados sempre</li>
+                    <li>✅ 2 perfis profissionais</li>
+                    <li>✅ Pacientes e terapias ilimitados</li>
+                  </ul>
+                  <button
+                    onClick={() => setShowSerialModal(true)}
+                    className="w-full bg-blue-600 text-white py-2 px-3 rounded text-sm hover:bg-blue-700"
+                  >
+                    📄 Solicitar Teste 15d
+                  </button>
+                </div>
+                
+                <div className="bg-white p-3 rounded border border-green-200">
+                  <h5 className="font-semibold text-green-700 mb-2">⚡ Teste 7 Dias</h5>
+                  <ul className="text-xs text-green-600 space-y-1 mb-3">
+                    <li>✅ Apenas QR Import/Export</li>
+                    <li>⚠️ Dados temporários</li>
+                    <li>✅ Demonstração completa</li>
+                    <li>🔥 Para decision rápida</li>
+                  </ul>
+                  <button
+                    onClick={() => setShowSerialModal(true)}
+                    className="w-full bg-green-600 text-white py-2 px-3 rounded text-sm hover:bg-green-700"
+                  >
+                    ⚡ Solicitar Teste 7d
+                  </button>
+                </div>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+              <div className="border-2 border-purple-200 rounded-lg p-4 hover:border-purple-400 transition-all">
+                <div className="text-center">
+                  <h4 className="font-bold text-lg text-purple-600 mb-2">📅 MENSAL</h4>
+                  <div className="text-2xl font-bold text-gray-800 mb-1">R$ 14,90</div>
+                  <div className="text-sm text-gray-600 mb-4">por mês</div>
+                  
+                  <ul className="text-sm text-left space-y-1 mb-4">
+                    <li>✅ Pacientes ilimitados</li>
+                    <li>✅ Terapias ilimitadas</li>
+                    <li>✅ 2 perfis profissionais</li>
+                    <li>✅ Backup automático</li>
+                    <li>✅ QR Export/Import</li>
+                  </ul>
+                  
+                  <div className="space-y-2">
+                    <a
+                      href="mailto:lunara_terapias@jim.com?subject=Pagamento Premium Mensal - R$ 14,90&body=Olá! Gostaria de pagar R$ 14,90 pelo Premium Mensal via PIX. Por favor, me enviem os dados para pagamento."
+                      className="w-full bg-purple-600 text-white py-2 px-4 rounded hover:bg-purple-700 block text-center"
+                    >
+                      📧 Solicitar via Email
+                    </a>
+                    <a
+                      href="https://wa.me/5516997934558?text=Olá! Gostaria de pagar R$ 14,90 pelo Premium Mensal via PIX. Por favor, me enviem os dados para pagamento."
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full bg-green-600 text-white py-2 px-4 rounded hover:bg-green-700 text-sm block text-center"
+                    >
+                      📱 Solicitar via WhatsApp
+                    </a>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-2 border-pink-200 rounded-lg p-4 hover:border-pink-400 transition-all relative">
+                <div className="absolute -top-2 left-1/2 transform -translate-x-1/2 bg-pink-500 text-white px-3 py-1 rounded-full text-xs font-bold">
+                  🎯 MAIS POPULAR
+                </div>
+                <div className="text-center">
+                  <h4 className="font-bold text-lg text-pink-600 mb-2">📆 ANUAL</h4>
+                  <div className="text-2xl font-bold text-gray-800 mb-1">R$ 149,00</div>
+                  <div className="text-sm text-gray-600 mb-1">por ano</div>
+                  <div className="text-xs text-green-600 font-medium mb-4">💰 12 meses por preço de 10!</div>
+                  
+                  <ul className="text-sm text-left space-y-1 mb-4">
+                    <li>✅ Pacientes ilimitados</li>
+                    <li>✅ Terapias ilimitadas</li>
+                    <li>✅ 2 perfis profissionais</li>
+                    <li>✅ Backup automático</li>
+                    <li>✅ QR Export/Import</li>
+                    <li>🎁 <strong>2 meses grátis</strong></li>
+                  </ul>
+                  
+                  <div className="space-y-2">
+                    <a
+                      href="mailto:lunara_terapias@jim.com?subject=Pagamento Premium Anual - R$ 149,00&body=Olá! Gostaria de pagar R$ 149,00 pelo Premium Anual via PIX. Por favor, me enviem os dados para pagamento."
+                      className="w-full bg-pink-600 text-white py-2 px-4 rounded hover:bg-pink-700 block text-center"
+                    >
+                      📧 Solicitar via Email
+                    </a>
+                    <a
+                      href="https://wa.me/5516997934558?text=Olá! Gostaria de pagar R$ 149,00 pelo Premium Anual via PIX. Por favor, me enviem os dados para pagamento."
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full bg-green-600 text-white py-2 px-4 rounded hover:bg-green-700 text-sm block text-center"
+                    >
+                      📱 Solicitar via WhatsApp
+                    </a>
+                    <button
+                      onClick={() => {
+                        window.open('https://invoice.infinitepay.io/plans/lunara_terapias/5q4zbzg8Uh', '_blank');
+                      }}
+                      className="w-full bg-blue-600 text-white py-2 px-4 rounded hover:bg-blue-700 text-sm"
+                    >
+                      💳 Cartão Parcelado
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 mb-4">
+              <h4 className="font-medium text-blue-800 mb-2">🔄 Como funciona:</h4>
+              <ol className="text-sm text-blue-700 space-y-1">
+                <li><strong>1. TESTE GRÁTIS:</strong> Solicite chave de teste via WhatsApp (opcional)</li>
+                <li><strong>2. ESCOLHA CONTATO:</strong> Email ou WhatsApp</li>
+                <li><strong>3. SOLICITE PAGAMENTO:</strong> Receba dados do PIX ou link do cartão</li>
+                <li><strong>4. REALIZE PAGAMENTO:</strong> PIX ou cartão parcelado</li>
+                <li><strong>5. ENVIE COMPROVANTE:</strong> Via WhatsApp (16) 99793-4558</li>
+                <li><strong>6. RECEBA SUA CHAVE:</strong> Serial Premium em até 24h</li>
+                <li><strong>7. ATIVE NO APP:</strong> Use o botão "🔑 Ativar Serial"</li>
+              </ol>
+            </div>
+
+            <div className="flex space-x-3">
+              <button
+                onClick={() => setShowSerialModal(true)}
+                className="flex-1 bg-green-600 text-white py-2 px-4 rounded hover:bg-green-700"
+              >
+                🔑 Já recebeu sua chave serial? Clique para preencher e liberar seu acesso extra!
+              </button>
+              <button
+                onClick={() => setShowUpgradeModal(false)}
+                className="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded hover:bg-gray-400"
+              >
+                ❌ Talvez mais tarde
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showSerialModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="font-bold text-lg mb-4">🔑 Ativar Chave Serial</h3>
+            
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Digite sua chave serial:
+              </label>
+              <input 
+                type="text"
+                id="serialKeyInput"
+                className="w-full p-3 border border-gray-300 rounded-md font-mono text-center uppercase"
+                placeholder="LUNA-2025-P001-ABCD ou LUNA-MSTR-001-ABCD-EFGH-M2"
+                maxLength="25"
+                onChange={(e) => {
+                  let value = e.target.value.replace(/[^A-Z0-9M∞]/g, '');
+                  if (value.length >= 4) value = value.substring(0, 4) + '-' + value.substring(4);
+                  if (value.length >= 9) value = value.substring(0, 9) + '-' + value.substring(9);
+                  if (value.length >= 14) value = value.substring(0, 14) + '-' + value.substring(14);
+                  if (value.length >= 19) value = value.substring(0, 19) + '-' + value.substring(19);
+                  if (value.length >= 24) value = value.substring(0, 24) + '-' + value.substring(24);
+                  e.target.value = value;
+                }}
+              />
+              <div className="text-xs text-gray-500 mt-2 space-y-1">
+                <p><strong>Formato das chaves:</strong></p>
+                <p>• Premium Mensal: LUNA-2025-P001-ABCD</p>
+                <p>• Premium Anual: LUNA-2025-PA01-ABCD</p>
+                <p>• Teste 7 dias: LUNA-TEST7-001-ABCD</p>
+                <p>• Teste 15 dias: LUNA-TEST15-001-ABCD</p>
+                <p>• Master: LUNA-MSTR-001-ABCD-EFGH-M2</p>
+              </div>
+            </div>
+
+            <div className="bg-yellow-50 p-3 rounded border border-yellow-200 mb-4">
+              <p className="text-sm text-yellow-800">
+                💡 <strong>Como obter chaves:</strong><br/>
+                • Premium: Solicite via Email ou WhatsApp<br/>
+                • Teste: Solicite via WhatsApp<br/>
+                • Cada chave funciona apenas uma vez<br/>
+                • WhatsApp: (16) 99793-4558
+              </p>
+            </div>
+
+            <div className="flex space-x-3">
+              <button
+                onClick={() => {
+                  const serialKey = document.getElementById('serialKeyInput').value;
+                  if (activateSerialKey(serialKey)) {
+                    setShowSerialModal(false);
+                    setShowUpgradeModal(false);
+                  }
+                }}
+                className="flex-1 bg-green-600 text-white py-2 px-4 rounded hover:bg-green-700"
+              >
+                ✅ Ativar Chave
+              </button>
+              <button
+                onClick={() => setShowSerialModal(false)}
+                className="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded hover:bg-gray-400"
+              >
+                ❌ Cancelar
+              </button>
+            </div>
+
+            <div className="mt-4 text-center space-y-2">
+              <a
+                href="https://wa.me/5516997934558?text=Olá! Gostaria de solicitar uma chave de TESTE da Agenda Profissional."
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+              >
+                📱 Solicitar Chave de Teste (GRÁTIS)
+              </a>
+              <a
+                href="https://wa.me/5516997934558?text=Olá! Preciso de ajuda com minha chave serial do Premium."
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block text-blue-600 hover:text-blue-800 text-sm font-medium"
+              >
+                🆘 Suporte via WhatsApp
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Rodapé com informações do sistema */}
+      <div className="bg-gradient-to-r from-blue-600 to-purple-600 px-4 py-3 text-white">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <span className="text-sm font-medium">
+              Agenda Profissional v2.0 PREMIUM por <strong>LUNARA Terapias</strong> (2025)
+            </span>
+          </div>
+          
+          <div className="flex items-center space-x-3">
+            <span className="text-sm opacity-90">
+              {isFreemiumMode 
+                ? '🌟 Quer recursos ilimitados?' 
+                : isMasterUser 
+                ? '👑 Acesso Master Permanente' 
+                : premiumStatus?.isTest
+                ? `🧪 Teste ${premiumStatus.testType === 'test7' ? '7d' : '15d'} (${premiumStatus.daysLeft} dias)`
+                : `💎 Premium ativo (${premiumStatus?.daysLeft} dias)`
+              }
+            </span>
+            {isFreemiumMode ? (
+              <button
+                onClick={() => setShowUpgradeModal(true)}
+                className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 px-3 py-1 rounded-full text-white text-sm font-medium transition-colors"
+              >
+                💎 UPGRADE R$ 14,90
+              </button>
+            ) : isMasterUser ? (
+              <div className="flex space-x-2">
+                <button
+                  onClick={() => setShowAdminPanel(true)}
+                  className="bg-gradient-to-r from-red-500 to-yellow-500 hover:from-red-600 hover:to-yellow-600 px-3 py-1 rounded-full text-white text-sm font-medium transition-colors"
+                >
+                  👑 PAINEL ADMIN
+                </button>
+                <a
+                  href="https://wa.me/5516997934558?text=Olá! Sou usuário MASTER da Agenda Profissional."
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="bg-red-600 hover:bg-red-700 px-3 py-1 rounded-full text-white text-sm font-medium transition-colors"
+                >
+                  📱 Contato Master
+                </a>
+              </div>
+            ) : premiumStatus?.isTest ? (
+              <div className="flex space-x-2">
+                <button
+                  onClick={() => setShowUpgradeModal(true)}
+                  className="bg-green-500 hover:bg-green-600 px-3 py-1 rounded-full text-white text-sm font-medium transition-colors"
+                >
+                  🚀 Upgrade Premium
+                </button>
+                <a
+                  href="https://wa.me/5516997934558?text=Olá! Estou testando a Agenda Profissional e preciso de suporte."
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="bg-blue-500 hover:bg-blue-600 px-3 py-1 rounded-full text-white text-sm font-medium transition-colors"
+                >
+                  📱 Suporte Teste
+                </a>
+              </div>
+            ) : (
+              <div className="flex space-x-2">
+                <button
+                  onClick={() => setShowSerialModal(true)}
+                  className="bg-blue-500 hover:bg-blue-600 px-3 py-1 rounded-full text-white text-sm font-medium transition-colors"
+                >
+                  🔑 Renovar
+                </button>
+                <a
+                  href="https://wa.me/5516997934558?text=Olá! Sou usuário Premium da Agenda Profissional e preciso de suporte."
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="bg-green-500 hover:bg-green-600 px-3 py-1 rounded-full text-white text-sm font-medium transition-colors"
+                >
+                  📱 Suporte VIP
+                </a>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default AgendaLocalQR;

@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel do Afiliado - Lunara Afiliados</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+    <style>
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 1px;
+            background-color: #e5e7eb;
+        }
+        .calendar-day {
+            background: white;
+            min-height: 100px;
+            padding: 4px;
+            display: flex;
+            flex-direction: column;
+            cursor: pointer;
+        }
+        .calendar-day:hover {
+            background-color: #f3f4f6;
+        }
+        .calendar-day.other-month {
+            background-color: #f9fafb;
+            color: #9ca3af;
+        }
+        .calendar-day.today {
+            background-color: #dbeafe;
+        }
+        .calendar-day.available {
+            border-left: 4px solid #10b981;
+        }
+        .appointment-slot {
+            background-color: #e0f2fe;
+            border: 1px solid #0277bd;
+            border-radius: 4px;
+            padding: 2px 4px;
+            font-size: 10px;
+            margin-bottom: 1px;
+            cursor: pointer;
+        }
+        .appointment-slot:hover {
+            background-color: #b3e5fc;
+        }
+        .appointment-slot.booked {
+            background-color: #ffecb3;
+            border-color: #ffa000;
+        }
+        .filter-card {
+            transition: all 0.3s ease;
+        }
+        .filter-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <!-- Header -->
+    <header class="bg-white shadow-sm border-b">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <div class="flex items-center">
+                    <img src="assets/lunara-logo-affiliate.png?prompt=Modern%20logo%20for%20Lunara%20Afiliados%20therapy%20platform%20affiliate%20version" alt="Lunara" class="h-8 w-auto">
+                    <span class="ml-3 text-xl font-semibold text-gray-900">Lunara Afiliados</span>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <button class="p-2 rounded-full hover:bg-gray-100">
+                        <i data-lucide="bell" class="w-5 h-5 text-gray-500"></i>
+                    </button>
+                    <div class="flex items-center space-x-2">
+                        <div class="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center">
+                            <span class="text-white font-medium text-sm">AC</span>
+                        </div>
+                        <span class="text-sm font-medium text-gray-700">Ana Costa</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div class="flex flex-col lg:flex-row gap-6">
+            <!-- Sidebar -->
+            <div class="lg:w-80 flex-shrink-0">
+                <!-- Quick Stats -->
+                <div class="bg-white rounded-lg shadow-sm p-6 mb-6">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-4">Meus Resultados</h3>
+                    <div class="grid grid-cols-1 gap-4">
+                        <div class="text-center p-3 bg-blue-50 rounded-lg">
+                            <div class="text-2xl font-bold text-blue-600">15</div>
+                            <div class="text-sm text-gray-600">Agendamentos Este Mês</div>
+                        </div>
+                        <div class="text-center p-3 bg-green-50 rounded-lg">
+                            <div class="text-2xl font-bold text-green-600">R$ 450</div>
+                            <div class="text-sm text-gray-600">Comissões Geradas</div>
+                        </div>
+                        <div class="text-center p-3 bg-purple-50 rounded-lg">
+                            <div class="text-2xl font-bold text-purple-600">8</div>
+                            <div class="text-sm text-gray-600">Clientes Ativos</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Filtros -->
+                <div class="bg-white rounded-lg shadow-sm p-6 mb-6">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-4">Filtrar Terapias</h3>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Terapeuta</label>
+                            <select class="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option>Todos os Terapeutas</option>
+                                <option>Dr. Maria Silva</option>
+                                <option>Dr. João Santos</option>
+                                <option>Dra. Ana Lima</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Tipo de Terapia</label>
+                            <select class="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option>Todas as Terapias</option>
+                                <option>Acupuntura</option>
+                                <option>Massoterapia</option>
+                                <option>Reflexologia</option>
+                                <option>Aromaterapia</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Localização</label>
+                            <select class="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option>Qualquer Local</option>
+                                <option>Centro</option>
+                                <option>Zona Sul</option>
+                                <option>Zona Norte</option>
+                                <option>Online</option>
+                            </select>
+                        </div>
+                        <button class="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors">
+                            <i data-lucide="search" class="w-4 h-4 mr-2 inline"></i>
+                            Aplicar Filtros
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Quick Actions -->
+                <div class="bg-white rounded-lg shadow-sm p-6">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-4">Ações Rápidas</h3>
+                    <div class="space-y-2">
+                        <button class="w-full flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700">
+                            <i data-lucide="user-plus" class="w-4 h-4 mr-2"></i>
+                            Novo Cliente
+                        </button>
+                        <button class="w-full flex items-center justify-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
+                            <i data-lucide="calendar-plus" class="w-4 h-4 mr-2"></i>
+                            Novo Agendamento
+                        </button>
+                        <button class="w-full flex items-center justify-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
+                            <i data-lucide="bar-chart-3" class="w-4 h-4 mr-2"></i>
+                            Relatórios
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Content -->
+            <div class="flex-1">
+                <!-- Calendar Header -->
+                <div class="bg-white rounded-lg shadow-sm p-6 mb-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-2xl font-bold text-gray-900">Agenda de Agendamentos</h2>
+                        <div class="flex items-center space-x-2">
+                            <button class="p-2 hover:bg-gray-100 rounded-lg">
+                                <i data-lucide="chevron-left" class="w-5 h-5"></i>
+                            </button>
+                            <span class="text-lg font-medium text-gray-900">Julho 2025</span>
+                            <button class="p-2 hover:bg-gray-100 rounded-lg">
+                                <i data-lucide="chevron-right" class="w-5 h-5"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Calendar Legend -->
+                    <div class="flex items-center space-x-6 mb-4">
+                        <div class="flex items-center">
+                            <div class="w-3 h-3 bg-green-500 rounded-full mr-2"></div>
+                            <span class="text-sm text-gray-600">Horário Disponível</span>
+                        </div>
+                        <div class="flex items-center">
+                            <div class="w-3 h-3 bg-blue-500 rounded-full mr-2"></div>
+                            <span class="text-sm text-gray-600">Meus Agendamentos</span>
+                        </div>
+                        <div class="flex items-center">
+                            <div class="w-3 h-3 bg-yellow-500 rounded-full mr-2"></div>
+                            <span class="text-sm text-gray-600">Outros Agendamentos</span>
+                        </div>
+                    </div>
+
+                    <!-- Calendar Grid -->
+                    <div class="calendar-grid">
+                        <!-- Header Days -->
+                        <div class="bg-gray-100 p-3 text-center font-medium text-gray-700">DOM</div>
+                        <div class="bg-gray-100 p-3 text-center font-medium text-gray-700">SEG</div>
+                        <div class="bg-gray-100 p-3 text-center font-medium text-gray-700">TER</div>
+                        <div class="bg-gray-100 p-3 text-center font-medium text-gray-700">QUA</div>
+                        <div class="bg-gray-100 p-3 text-center font-medium text-gray-700">QUI</div>
+                        <div class="bg-gray-100 p-3 text-center font-medium text-gray-700">SEX</div>
+                        <div class="bg-gray-100 p-3 text-center font-medium text-gray-700">SÁB</div>
+
+                        <!-- Calendar Days -->
+                        <div class="calendar-day other-month">
+                            <div class="text-sm">30</div>
+                        </div>
+                        <div class="calendar-day">
+                            <div class="text-sm font-medium">1</div>
+                        </div>
+                        <div class="calendar-day">
+                            <div class="text-sm font-medium">2</div>
+                        </div>
+                        <div class="calendar-day">
+                            <div class="text-sm font-medium">3</div>
+                        </div>
+                        <div class="calendar-day available">
+                            <div class="text-sm font-medium">4</div>
+                            <div class="appointment-slot">09:00</div>
+                            <div class="appointment-slot booked">14:00 João</div>
+                            <div class="appointment-slot">16:00</div>
+                        </div>
+                        <div class="calendar-day">
+                            <div class="text-sm font-medium">5</div>
+                        </div>
+                        <div class="calendar-day">
+                            <div class="text-sm font-medium">6</div>
+                        </div>
+                        <div class="calendar-day">
+                            <div class="text-sm font-medium">7</div>
+                        </div>
+                        <div class="calendar-day available">
+                            <div class="text-sm font-medium">8</div>
+                            <div class="appointment-slot">10:00</div>
+                            <div class="appointment-slot">15:00</div>
+                        </div>
+                        <div class="calendar-day">
+                            <div class="text-sm font-medium">9</div>
+                        </div>
+                        <div class="calendar-day">
+                            <div class="text-sm font-medium">10</div>
+                        </div>
+                        <div class="calendar-day today available">
+                            <div class="text-sm font-medium">11</div>
+                            <div class="appointment-slot">09:00</div>
+                            <div class="appointment-slot">11:00</div>
+                            <div class="appointment-slot booked">14:00 Maria</div>
+                        </div>
+                        <div class="calendar-day">
+                            <div class="text-sm font-medium">12</div>
+                        </div>
+                        <div class="calendar-day">
+                            <div class="text-sm font-medium">13</div>
+                        </div>
+                        <div class="calendar-day available">
+                            <div class="text-sm font-medium">14</div>
+                            <div class="appointment-slot">08:00</div>
+                            <div class="appointment-slot">10:00</div>
+                            <div class="appointment-slot booked">16:00 Pedro</div>
+                        </div>
+                        <div class="calendar-day">
+                            <div class="text-sm font-medium">15</div>
+                        </div>
+                        <div class="calendar-day">
+                            <div class="text-sm font-medium">16</div>
+                        </div>
+                        <div class="calendar-day">
+                            <div class="text-sm font-medium">17</div>
+                        </div>
+                        <div class="calendar-day available">
+                            <div class="text-sm font-medium">18</div>
+                            <div class="appointment-slot">09:00</div>
+                            <div class="appointment-slot">14:00</div>
+                            <div class="appointment-slot">17:00</div>
+                        </div>
+                        <div class="calendar-day">
+                            <div class="text-sm font-medium">19</div>
+                        </div>
+                        <div class="calendar-day">
+                            <div class="text-sm font-medium">20</div>
+                        </div>
+                        <div class="calendar-day">
+                            <div class="text-sm font-medium">21</div>
+                        </div>
+                        <div class="calendar-day">
+                            <div class="text-sm font-medium">22</div>
+                        </div>
+                        <div class="calendar-day">
+                            <div class="text-sm font-medium">23</div>
+                        </div>
+                        <div class="calendar-day">
+                            <div class="text-sm font-medium">24</div>
+                        </div>
+                        <div class="calendar-day available">
+                            <div class="text-sm font-medium">25</div>
+                            <div class="appointment-slot">10:00</div>
+                            <div class="appointment-slot booked">15:00 Ana</div>
+                            <div class="appointment-slot">18:00</div>
+                        </div>
+                        <div class="calendar-day">
+                            <div class="text-sm font-medium">26</div>
+                        </div>
+                        <div class="calendar-day">
+                            <div class="text-sm font-medium">27</div>
+                        </div>
+                        <div class="calendar-day">
+                            <div class="text-sm font-medium">28</div>
+                        </div>
+                        <div class="calendar-day">
+                            <div class="text-sm font-medium">29</div>
+                        </div>
+                        <div class="calendar-day">
+                            <div class="text-sm font-medium">30</div>
+                        </div>
+                        <div class="calendar-day">
+                            <div class="text-sm font-medium">31</div>
+                        </div>
+                        <div class="calendar-day other-month">
+                            <div class="text-sm">1</div>
+                        </div>
+                        <div class="calendar-day other-month">
+                            <div class="text-sm">2</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Terapias Disponíveis -->
+                <div class="bg-white rounded-lg shadow-sm p-6">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-4">Terapias Disponíveis</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        <div class="filter-card border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                            <div class="flex items-center justify-between mb-3">
+                                <div class="flex items-center">
+                                    <div class="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                                        <i data-lucide="activity" class="w-5 h-5 text-blue-600"></i>
+                                    </div>
+                                    <div class="ml-3">
+                                        <h4 class="font-medium text-gray-900">Acupuntura</h4>
+                                        <p class="text-sm text-gray-500">Dr. Maria Silva</p>
+                                    </div>
+                                </div>
+                                <div class="text-right">
+                                    <div class="text-sm font-medium text-green-600">R$ 120</div>
+                                    <div class="text-xs text-gray-500">Comissão: R$ 30</div>
+                                </div>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-xs text-gray-500">📍 Centro</span>
+                                <button class="text-sm text-blue-600 hover:text-blue-800 font-medium">
+                                    Agendar
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="filter-card border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                            <div class="flex items-center justify-between mb-3">
+                                <div class="flex items-center">
+                                    <div class="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
+                                        <i data-lucide="heart" class="w-5 h-5 text-green-600"></i>
+                                    </div>
+                                    <div class="ml-3">
+                                        <h4 class="font-medium text-gray-900">Massoterapia</h4>
+                                        <p class="text-sm text-gray-500">Dr. João Santos</p>
+                                    </div>
+                                </div>
+                                <div class="text-right">
+                                    <div class="text-sm font-medium text-green-600">R$ 90</div>
+                                    <div class="text-xs text-gray-500">Comissão: R$ 22</div>
+                                </div>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-xs text-gray-500">📍 Zona Sul</span>
+                                <button class="text-sm text-blue-600 hover:text-blue-800 font-medium">
+                                    Agendar
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="filter-card border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                            <div class="flex items-center justify-between mb-3">
+                                <div class="flex items-center">
+                                    <div class="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
+                                        <i data-lucide="flower" class="w-5 h-5 text-purple-600"></i>
+                                    </div>
+                                    <div class="ml-3">
+                                        <h4 class="font-medium text-gray-900">Reflexologia</h4>
+                                        <p class="text-sm text-gray-500">Dra. Ana Lima</p>
+                                    </div>
+                                </div>
+                                <div class="text-right">
+                                    <div class="text-sm font-medium text-green-600">R$ 80</div>
+                                    <div class="text-xs text-gray-500">Comissão: R$ 20</div>
+                                </div>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-xs text-gray-500">📍 Online</span>
+                                <button class="text-sm text-blue-600 hover:text-blue-800 font-medium">
+                                    Agendar
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="filter-card border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                            <div class="flex items-center justify-between mb-3">
+                                <div class="flex items-center">
+                                    <div class="w-10 h-10 bg-yellow-100 rounded-full flex items-center justify-center">
+                                        <i data-lucide="sun" class="w-5 h-5 text-yellow-600"></i>
+                                    </div>
+                                    <div class="ml-3">
+                                        <h4 class="font-medium text-gray-900">Aromaterapia</h4>
+                                        <p class="text-sm text-gray-500">Dr. Carlos Pereira</p>
+                                    </div>
+                                </div>
+                                <div class="text-right">
+                                    <div class="text-sm font-medium text-green-600">R$ 70</div>
+                                    <div class="text-xs text-gray-500">Comissão: R$ 18</div>
+                                </div>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-xs text-gray-500">📍 Zona Norte</span>
+                                <button class="text-sm text-blue-600 hover:text-blue-800 font-medium">
+                                    Agendar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Novo Agendamento -->
+    <div id="bookingModal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="bg-white rounded-lg max-w-md w-full p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-semibold text-gray-900">Novo Agendamento</h3>
+                    <button onclick="closeBookingModal()" class="text-gray-400 hover:text-gray-500">
+                        <i data-lucide="x" class="w-5 h-5"></i>
+                    </button>
+                </div>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Cliente</label>
+                        <select class="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option>Selecione um cliente</option>
+                            <option>João Silva</option>
+                            <option>Maria Santos</option>
+                            <option>Pedro Lima</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Terapia</label>
+                        <select class="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option>Acupuntura - Dr. Maria Silva</option>
+                            <option>Massoterapia - Dr. João Santos</option>
+                            <option>Reflexologia - Dra. Ana Lima</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Data</label>
+                        <input type="date" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" value="2025-07-11">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Horário</label>
+                        <select class="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option>09:00</option>
+                            <option>11:00</option>
+                            <option>14:00</option>
+                            <option>16:00</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Observações</label>
+                        <textarea class="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" rows="3" placeholder="Observações adicionais..."></textarea>
+                    </div>
+                </div>
+                <div class="mt-6 flex space-x-3">
+                    <button class="flex-1 bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700">
+                        Confirmar Agendamento
+                    </button>
+                    <button onclick="closeBookingModal()" class="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-400">
+                        Cancelar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        // Initialize Lucide icons
+        window.addEventListener('DOMContentLoaded', function() {
+            if (typeof lucide !== 'undefined') {
+                lucide.createIcons();
+            }
+        });
+
+        // Modal functions
+        window.closeBookingModal = function() {
+            document.getElementById('bookingModal').classList.add('hidden');
+        }
+
+        // Add click handlers to available appointment slots
+        document.querySelectorAll('.appointment-slot:not(.booked)').forEach(slot => {
+            slot.addEventListener('click', function() {
+                document.getElementById('bookingModal').classList.remove('hidden');
+            });
+        });
+
+        // Add click handlers to therapy cards
+        document.querySelectorAll('.filter-card button').forEach(button => {
+            button.addEventListener('click', function(e) {
+                e.preventDefault();
+                document.getElementById('bookingModal').classList.remove('hidden');
+            });
+        });
+
+        // Close modal when clicking outside
+        document.getElementById('bookingModal').addEventListener('click', function(e) {
+            if (e.target === this) {
+                closeBookingModal();
+            }
+        });
+    </script>
+</body>
+</html>
