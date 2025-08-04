@@ -1,8 +1,13 @@
-// tsconfig.json
 {
   "compilerOptions": {
-    "target": "es5",
-    "lib": ["dom", "dom.iterable", "es6"],
+    // Configurações de compilação modernas
+    "target": "ES2022",
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "ES2022",
+      "webworker"
+    ],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
@@ -14,22 +19,117 @@
     "isolatedModules": true,
     "jsx": "preserve",
     "incremental": true,
+    
+    // Configurações de path mapping
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@/components/*": ["./src/components/*"],
+      "@/lib/*": ["./src/lib/*"],
+      "@/utils/*": ["./src/utils/*"],      
+      "@/hooks/*": ["./src/hooks/*"],
+      "@/types/*": ["./src/types/*"],
+      "@/styles/*": ["./src/styles/*"],
+      "@/public/*": ["./public/*"],
+      "@/app/*": ["./src/app/*"],
+      "@/pages/*": ["./src/pages/*"],
+      "@/api/*": ["./src/pages/api/*", "./src/app/api/*"],
+      "@/config/*": ["./src/config/*"],
+      "@/constants/*": ["./src/constants/*"],
+      "@/contexts/*": ["./src/contexts/*"],
+      "@/providers/*": ["./src/providers/*"],
+      "@/middleware": ["./src/middleware.ts"],
+      "~/*": ["./public/*"]
+    },
+    
+    // Configurações avançadas de type checking
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "useUnknownInCatchVariables": true,
+    
+    // Configurações de interoperabilidade
+    "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,
+    
+    // Configurações de plugins Next.js
     "plugins": [
       {
         "name": "next"
       }
     ],
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["./*"],
-      "@/components/*": ["./components/*"],
-      "@/hooks/*": ["./hooks/*"],
-      "@/lib/*": ["./lib/*"],
-      "@/types/*": ["./types/*"],
-      "@/utils/*": ["./utils/*"],
-      "@/config/*": ["./config/*"]
-    }
+    
+    // Configurações de tipos
+    "types": [
+      "node",
+      "jest",
+      "testing-library__jest-dom"
+    ],
+    
+    // Configurações de declaração
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": true,
+    
+    // Configurações de output
+    "outDir": "./dist",
+    "rootDir": "./src",
+    
+    // Configurações experimentais
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    
+    // Configurações de imports
+    "moduleDetection": "auto",
+    "verbatimModuleSyntax": false
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
+  
+  // Arquivos incluídos
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    "src/**/*",
+    "pages/**/*",
+    "components/**/*",
+    "lib/**/*",
+    "utils/**/*",
+    "hooks/**/*",
+    "types/**/*",
+    "middleware.ts",
+    "tailwind.config.js",
+    "next.config.js"
+  ],
+  
+  // Arquivos excluídos
+  "exclude": [
+    "node_modules",
+    ".next",
+    "out",
+    "dist",
+    "build",
+    "coverage",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/*.spec.ts",
+    "**/*.spec.tsx",
+    "cypress",
+    "e2e",
+    "docs",
+    "scripts",
+    "public/sw.js",
+    "public/workbox-*.js"
+  ],
+  
+  // Configurações do TypeScript para Next.js 13+
+  "ts-node": {
+    "compilerOptions": {
+      "module": "CommonJS"
+    }
+  }
 }
