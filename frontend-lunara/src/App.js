@@ -1,3 +1,4 @@
+@'
 // frontend-lunara/src/App.js
 // App principal - Lunara Afiliados + Agenda 2.0
 // Integração completa entre sistemas
@@ -11,15 +12,6 @@ const AuthContext = createContext();
 
 // Configuração do Axios
 axios.defaults.baseURL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
-
-// Interceptor para adicionar token
-axios.interceptors.request.use((config) => {
-  const token = localStorage.getItem('accessToken');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
 
 // Variável para controlar o refresh do token
 let isRefreshing = false;
@@ -36,6 +28,15 @@ const processQueue = (error, token = null) => {
   
   failedQueue = [];
 };
+
+// Interceptor para adicionar token
+axios.interceptors.request.use((config) => {
+  const token = localStorage.getItem('accessToken');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
 
 // Interceptor para tratamento de respostas
 axios.interceptors.response.use(
@@ -864,3 +865,4 @@ const App = () => {
 };
 
 export default App;
+'@ | Out-File -FilePath "frontend-lunara\src\App.js" -Encoding UTF8
