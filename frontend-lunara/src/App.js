@@ -2,8 +2,8 @@
 // App principal - Lunara Afiliados + Agenda 2.0
 // Integração completa entre sistemas
 
-import React, { useState, useEffect, createContext, useContext } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import React, { useState, useEffect, createContext, useContext, useCallback, useMemo } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
 import axios from 'axios';
 
 // Context para autenticação
@@ -21,12 +21,43 @@ axios.interceptors.request.use((config) => {
   return config;
 });
 
+// Variável para controlar o refresh do token
+let isRefreshing = false;
+let failedQueue = [];
+
+const processQueue = (error, token = null) => {
+  failedQueue.forEach(prom => {
+    if (error) {
+      prom.reject(error);
+    } else {
+      prom.resolve(token);
+    }
+  });
+  
+  failedQueue = [];
+};
+
 // Interceptor para tratamento de respostas
 axios.interceptors.response.use(
   (response) => response,
   async (error) => {
-    if (error.response?.status === 401) {
-      // Token expirado, tentar renovar
+    const originalRequest = error.config;
+    
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      if (isRefreshing) {
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject });
+        }).then(token => {
+          originalRequest.headers.Authorization = `Bearer ${token}`;
+          return axios(originalRequest);
+        }).catch(err => {
+          return Promise.reject(err);
+        });
+      }
+      
+      originalRequest._retry = true;
+      isRefreshing = true;
+      
       const refreshToken = localStorage.getItem('refreshToken');
       if (refreshToken) {
         try {
@@ -36,17 +67,26 @@ axios.interceptors.response.use(
           localStorage.setItem('accessToken', accessToken);
           localStorage.setItem('refreshToken', newRefreshToken);
           
+          axios.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
+          processQueue(null, accessToken);
+          
           // Repetir requisição original
-          error.config.headers.Authorization = `Bearer ${accessToken}`;
-          return axios.request(error.config);
+          originalRequest.headers.Authorization = `Bearer ${accessToken}`;
+          return axios(originalRequest);
         } catch (refreshError) {
           // Refresh falhou, fazer logout
+          processQueue(refreshError, null);
           localStorage.removeItem('accessToken');
           localStorage.removeItem('refreshToken');
           window.location.href = '/login';
+          return Promise.reject(refreshError);
+        } finally {
+          isRefreshing = false;
         }
       } else {
         // Sem refresh token, redirecionar para login
+        processQueue(new Error('No refresh token'), null);
+        localStorage.removeItem('accessToken');
         window.location.href = '/login';
       }
     }
@@ -58,34 +98,33 @@ axios.interceptors.response.use(
 const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const initAuth = async () => {
+  
+  const initAuth = useCallback(async () => {
+    try {
       const token = localStorage.getItem('accessToken');
       if (token) {
-        try {
-          const response = await axios.get('/auth/me');
-          setUser(response.data.data.user);
-        } catch (error) {
-          localStorage.removeItem('accessToken');
-          localStorage.removeItem('refreshToken');
-        }
+        const response = await axios.get('/auth/me');
+        setUser(response.data.data.user);
       }
+    } catch (error) {
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('refreshToken');
+    } finally {
       setLoading(false);
-    };
-
-    initAuth();
+    }
   }, []);
 
-  const login = async (email, password) => {
+  useEffect(() => {
+    initAuth();
+  }, [initAuth]);
+
+  const login = useCallback(async (email, password) => {
     try {
       const response = await axios.post('/auth/login', { email, password });
       const { user, accessToken, refreshToken } = response.data.data;
-
       localStorage.setItem('accessToken', accessToken);
       localStorage.setItem('refreshToken', refreshToken);
       setUser(user);
-
       return { success: true };
     } catch (error) {
       return {
@@ -93,21 +132,21 @@ const AuthProvider = ({ children }) => {
         message: error.response?.data?.message || 'Erro no login'
       };
     }
-  };
+  }, []);
 
-  const logout = () => {
+  const logout = useCallback(() => {
     localStorage.removeItem('accessToken');
     localStorage.removeItem('refreshToken');
     setUser(null);
     window.location.href = '/login';
-  };
+  }, []);
 
-  const value = {
+  const value = useMemo(() => ({
     user,
     login,
     logout,
     isAuthenticated: !!user
-  };
+  }), [user, login, logout]);
 
   if (loading) {
     return (
@@ -135,27 +174,28 @@ const useAuth = () => {
 // Componente de rota protegida
 const ProtectedRoute = ({ children, allowedRoles = [] }) => {
   const { user, isAuthenticated } = useAuth();
-
+  
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
   }
-
+  
   if (allowedRoles.length > 0 && !allowedRoles.includes(user.role)) {
     return <Navigate to="/unauthorized" replace />;
   }
-
+  
   return children;
 };
 
 // Componente de navegação
 const Navigation = () => {
   const { user, logout } = useAuth();
-
-  const getNavItems = () => {
+  const location = useLocation();
+  
+  const getNavItems = useCallback(() => {
     const baseItems = [
       { path: '/dashboard', label: 'Dashboard', icon: '📊' }
     ];
-
+    
     switch (user.role) {
       case 'admin':
         return [
@@ -198,7 +238,11 @@ const Navigation = () => {
       default:
         return baseItems;
     }
-  };
+  }, [user.role]);
+
+  const isActive = useCallback((path) => {
+    return location.pathname === path;
+  }, [location.pathname]);
 
   return (
     <nav className="bg-white shadow-lg">
@@ -206,25 +250,29 @@ const Navigation = () => {
         <div className="flex justify-between items-center h-16">
           {/* Logo */}
           <div className="flex items-center">
-            <h1 className="text-xl font-bold text-gray-900">
+            <Link to="/dashboard" className="text-xl font-bold text-gray-900">
               🌙 Lunara Afiliados
-            </h1>
+            </Link>
           </div>
-
+          
           {/* Menu de navegação */}
-          <div className="hidden md:flex space-x-4">
+          <div className="hidden md:flex space-x-1">
             {getNavItems().map((item) => (
-              <a
+              <Link
                 key={item.path}
-                href={item.path}
-                className="flex items-center px-3 py-2 text-sm font-medium text-gray-700 hover:text-blue-600 hover:bg-gray-100 rounded-md transition-colors"
+                to={item.path}
+                className={`flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                  isActive(item.path)
+                    ? 'bg-blue-100 text-blue-700'
+                    : 'text-gray-700 hover:text-blue-600 hover:bg-gray-100'
+                }`}
               >
                 <span className="mr-2">{item.icon}</span>
                 {item.label}
-              </a>
+              </Link>
             ))}
           </div>
-
+          
           {/* Menu do usuário */}
           <div className="flex items-center space-x-4">
             <div className="text-sm text-gray-700">
@@ -253,20 +301,22 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  useEffect(() => {
-    const fetchDashboard = async () => {
-      try {
-        const response = await axios.get('/dashboard');
-        setDashboardData(response.data.data);
-      } catch (error) {
-        setError(error.response?.data?.message || 'Erro ao carregar dashboard');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchDashboard();
+  const fetchDashboard = useCallback(async () => {
+    try {
+      setLoading(true);
+      const response = await axios.get('/dashboard');
+      setDashboardData(response.data.data);
+      setError(null);
+    } catch (error) {
+      setError(error.response?.data?.message || 'Erro ao carregar dashboard');
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    fetchDashboard();
+  }, [fetchDashboard]);
 
   if (loading) {
     return (
@@ -280,6 +330,12 @@ const Dashboard = () => {
     return (
       <div className="bg-red-50 border border-red-400 text-red-700 px-4 py-3 rounded">
         {error}
+        <button 
+          onClick={fetchDashboard}
+          className="ml-4 text-red-700 underline"
+        >
+          Tentar novamente
+        </button>
       </div>
     );
   }
@@ -320,7 +376,7 @@ const Dashboard = () => {
 // Dashboard específico para Admin
 const AdminDashboard = ({ data }) => {
   const { overview, timeSeries, topTherapists, topAffiliates } = data;
-
+  
   return (
     <div className="space-y-6">
       {/* Cards de métricas */}
@@ -350,7 +406,7 @@ const AdminDashboard = ({ data }) => {
           color="yellow"
         />
       </div>
-
+      
       {/* Gráfico de agendamentos */}
       <div className="bg-white p-6 rounded-lg shadow">
         <h3 className="text-lg font-medium text-gray-900 mb-4">
@@ -363,7 +419,7 @@ const AdminDashboard = ({ data }) => {
           Dados: {timeSeries.length} pontos de dados
         </div>
       </div>
-
+      
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Top terapeutas */}
         <div className="bg-white p-6 rounded-lg shadow">
@@ -385,7 +441,7 @@ const AdminDashboard = ({ data }) => {
             ))}
           </div>
         </div>
-
+        
         {/* Top afiliados */}
         <div className="bg-white p-6 rounded-lg shadow">
           <h3 className="text-lg font-medium text-gray-900 mb-4">
@@ -414,7 +470,7 @@ const AdminDashboard = ({ data }) => {
 // Dashboard para Terapeuta
 const TherapistDashboard = ({ data }) => {
   const { metrics, todayBookings, upcomingBookings } = data;
-
+  
   return (
     <div className="space-y-6">
       {/* Métricas do terapeuta */}
@@ -444,7 +500,7 @@ const TherapistDashboard = ({ data }) => {
           color="purple"
         />
       </div>
-
+      
       {/* Agendamentos de hoje */}
       <div className="bg-white p-6 rounded-lg shadow">
         <h3 className="text-lg font-medium text-gray-900 mb-4">
@@ -487,7 +543,7 @@ const TherapistDashboard = ({ data }) => {
 // Dashboard para Afiliado
 const AffiliateDashboard = ({ data }) => {
   const { affiliate, metrics, recentReferrals, topServices } = data;
-
+  
   return (
     <div className="space-y-6">
       {/* Informações do afiliado */}
@@ -509,7 +565,7 @@ const AffiliateDashboard = ({ data }) => {
           </div>
         </div>
       </div>
-
+      
       {/* Métricas do afiliado */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <MetricCard
@@ -537,7 +593,7 @@ const AffiliateDashboard = ({ data }) => {
           color="yellow"
         />
       </div>
-
+      
       {/* Referrals recentes */}
       <div className="bg-white p-6 rounded-lg shadow">
         <h3 className="text-lg font-medium text-gray-900 mb-4">
@@ -577,7 +633,7 @@ const AffiliateDashboard = ({ data }) => {
 // Dashboard para Cliente
 const ClientDashboard = ({ data }) => {
   const { metrics, upcomingSessions, recentSessions } = data;
-
+  
   return (
     <div className="space-y-6">
       {/* Métricas do cliente */}
@@ -607,7 +663,7 @@ const ClientDashboard = ({ data }) => {
           color="yellow"
         />
       </div>
-
+      
       {/* Próximas sessões */}
       <div className="bg-white p-6 rounded-lg shadow">
         <h3 className="text-lg font-medium text-gray-900 mb-4">
@@ -645,12 +701,12 @@ const ClientDashboard = ({ data }) => {
         ) : (
           <div className="text-center text-gray-500 py-8">
             <div className="mb-4">Nenhuma sessão agendada</div>
-            <a
-              href="/book-session"
+            <Link
+              to="/book-session"
               className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
             >
               Agendar Nova Sessão
-            </a>
+            </Link>
           </div>
         )}
       </div>
@@ -667,7 +723,7 @@ const MetricCard = ({ title, value, icon, color = 'blue' }) => {
     yellow: 'bg-yellow-50 text-yellow-600 border-yellow-200',
     red: 'bg-red-50 text-red-600 border-red-200'
   };
-
+  
   return (
     <div className={`p-6 rounded-lg border ${colorClasses[color]}`}>
       <div className="flex items-center">
@@ -688,12 +744,12 @@ const LoginPage = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const { login } = useAuth();
-
+  
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError('');
-
+    
     const result = await login(email, password);
     
     if (result.success) {
@@ -704,7 +760,7 @@ const LoginPage = () => {
     
     setLoading(false);
   };
-
+  
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8">
@@ -745,13 +801,13 @@ const LoginPage = () => {
               />
             </div>
           </div>
-
+          
           {error && (
             <div className="bg-red-50 border border-red-400 text-red-700 px-4 py-3 rounded">
               {error}
             </div>
           )}
-
+          
           <div>
             <button
               type="submit"
@@ -767,6 +823,16 @@ const LoginPage = () => {
   );
 };
 
+// Componente de Layout
+const Layout = () => {
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <Navigation />
+      <Dashboard />
+    </div>
+  );
+};
+
 // App principal
 const App = () => {
   return (
@@ -776,10 +842,7 @@ const App = () => {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/dashboard" element={
             <ProtectedRoute>
-              <div className="min-h-screen bg-gray-50">
-                <Navigation />
-                <Dashboard />
-              </div>
+              <Layout />
             </ProtectedRoute>
           } />
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
@@ -788,9 +851,9 @@ const App = () => {
               <div className="text-center">
                 <h1 className="text-4xl font-bold text-gray-900">404</h1>
                 <p className="text-gray-600">Página não encontrada</p>
-                <a href="/dashboard" className="text-blue-600 hover:underline">
+                <Link to="/dashboard" className="text-blue-600 hover:underline">
                   Voltar ao Dashboard
-                </a>
+                </Link>
               </div>
             </div>
           } />

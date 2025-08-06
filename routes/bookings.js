@@ -1,15 +1,13 @@
 // routes/bookings.js
 // Sistema de agendamentos (Agenda 2.0) - Lunara Afiliados
 // Core do sistema com validações, notificações e integrações
-
 const express = require('express');
 const { body, query, param, validationResult } = require('express-validator');
 const moment = require('moment-timezone');
-
-const { executeQuery, executeTransaction } = require('../config/database');
-const { emailService } = require('../config/email');
-const { logger, logHelpers } = require('../utils/logger');
-const { authenticateToken } = require('./auth');
+const { pool, transaction } = require('../config/database');
+const { sendEmail } = require('../config/email');
+const { logger } = require('../utils/logger');
+const { authenticate, authorize } = require('../middleware/auth');
 const { 
   asyncHandler, 
   ValidationError, 
@@ -17,23 +15,10 @@ const {
   ConflictError,
   AuthorizationError 
 } = require('../middleware/errorHandler');
-
 const router = express.Router();
 
 // ===== MIDDLEWARE DE AUTORIZAÇÃO =====
-const authorize = (roles) => {
-  return (req, res, next) => {
-    if (!req.user) {
-      throw new AuthorizationError('Usuário não autenticado');
-    }
-    
-    if (!roles.includes(req.user.role)) {
-      throw new AuthorizationError('Acesso negado para este recurso');
-    }
-    
-    next();
-  };
-};
+// Já implementado no middleware/auth, usando diretamente
 
 // ===== VALIDAÇÕES =====
 const createBookingValidation = [
@@ -58,7 +43,6 @@ const updateBookingValidation = [
 ];
 
 // ===== FUNÇÕES AUXILIARES =====
-
 // Verificar disponibilidade do horário
 const checkAvailability = async (therapistId, date, time, excludeBookingId = null) => {
   const query = `
@@ -75,13 +59,13 @@ const checkAvailability = async (therapistId, date, time, excludeBookingId = nul
     params.push(excludeBookingId);
   }
   
-  const result = await executeQuery(query, params);
+  const result = await pool.query(query, params);
   return result.rows.length === 0;
 };
 
 // Validar horário de funcionamento
 const validateBusinessHours = async (date, time) => {
-  const settingsResult = await executeQuery(`
+  const settingsResult = await pool.query(`
     SELECT value FROM settings WHERE key = 'business_hours'
   `);
   
@@ -90,7 +74,7 @@ const validateBusinessHours = async (date, time) => {
     end: '18:00',
     timezone: 'America/Sao_Paulo'
   };
-
+  
   const appointmentDateTime = moment.tz(`${date} ${time}`, businessHours.timezone);
   const dayOfWeek = appointmentDateTime.day(); // 0 = domingo, 6 = sábado
   
@@ -112,7 +96,7 @@ const validateBusinessHours = async (date, time) => {
 
 // Validar antecedência mínima
 const validateAdvanceBooking = async (date, time) => {
-  const settingsResult = await executeQuery(`
+  const settingsResult = await pool.query(`
     SELECT value FROM settings WHERE key = 'booking_advance_hours'
   `);
   
@@ -129,7 +113,7 @@ const validateAdvanceBooking = async (date, time) => {
 
 // Buscar dados completos do agendamento
 const getBookingWithDetails = async (bookingId) => {
-  const result = await executeQuery(`
+  const result = await pool.query(`
     SELECT 
       b.*,
       s.name as service_name,
@@ -161,16 +145,15 @@ const getBookingWithDetails = async (bookingId) => {
 
 // Criar notificação
 const createNotification = async (userId, type, title, message, data = {}, bookingId = null) => {
-  await executeQuery(`
+  await pool.query(`
     INSERT INTO notifications (user_id, type, title, message, data, booking_id)
     VALUES ($1, $2, $3, $4, $5, $6)
   `, [userId, type, title, message, JSON.stringify(data), bookingId]);
 };
 
 // ===== ROTAS =====
-
 // GET /api/bookings - Listar agendamentos
-router.get('/', authenticateToken, [
+router.get('/', authenticate, [
   query('page').optional().isInt({ min: 1 }).toInt(),
   query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
   query('status').optional().isIn(['pending', 'confirmed', 'cancelled', 'completed', 'no_show']),
@@ -184,7 +167,7 @@ router.get('/', authenticateToken, [
   if (!errors.isEmpty()) {
     throw new ValidationError('Parâmetros inválidos', errors.array());
   }
-
+  
   const {
     page = 1,
     limit = 20,
@@ -195,14 +178,14 @@ router.get('/', authenticateToken, [
     dateTo,
     search
   } = req.query;
-
+  
   const offset = (page - 1) * limit;
   
   // Construir query baseada no role do usuário
   let whereConditions = ['1=1'];
   let queryParams = [];
   let paramCount = 0;
-
+  
   // Filtros por role
   if (req.user.role === 'therapist') {
     // Terapeuta só vê seus próprios agendamentos
@@ -217,33 +200,33 @@ router.get('/', authenticateToken, [
     whereConditions.push(`(b.client_id = $${++paramCount} OR b.client_email = $${++paramCount})`);
     queryParams.push(req.user.id, req.user.email);
   }
-
+  
   // Filtros adicionais
   if (status) {
     whereConditions.push(`b.status = $${++paramCount}`);
     queryParams.push(status);
   }
-
+  
   if (therapistId && (req.user.role === 'admin' || req.user.role === 'therapist')) {
     whereConditions.push(`b.therapist_id = $${++paramCount}`);
     queryParams.push(therapistId);
   }
-
+  
   if (affiliateId && (req.user.role === 'admin' || req.user.role === 'affiliate')) {
     whereConditions.push(`b.affiliate_id = $${++paramCount}`);
     queryParams.push(affiliateId);
   }
-
+  
   if (dateFrom) {
     whereConditions.push(`b.scheduled_date >= $${++paramCount}`);
     queryParams.push(dateFrom);
   }
-
+  
   if (dateTo) {
     whereConditions.push(`b.scheduled_date <= $${++paramCount}`);
     queryParams.push(dateTo);
   }
-
+  
   if (search) {
     whereConditions.push(`(
       b.client_name ILIKE $${++paramCount} OR
@@ -254,9 +237,9 @@ router.get('/', authenticateToken, [
     const searchPattern = `%${search}%`;
     queryParams.push(searchPattern, searchPattern, searchPattern, searchPattern);
   }
-
+  
   const whereClause = whereConditions.join(' AND ');
-
+  
   // Query principal
   const bookingsQuery = `
     SELECT 
@@ -280,15 +263,15 @@ router.get('/', authenticateToken, [
     ORDER BY b.scheduled_date DESC, b.scheduled_time DESC
     LIMIT $${++paramCount} OFFSET $${++paramCount}
   `;
-
+  
   queryParams.push(limit, offset);
-
-  const result = await executeQuery(bookingsQuery, queryParams);
+  
+  const result = await pool.query(bookingsQuery, queryParams);
   
   const bookings = result.rows;
   const totalCount = bookings.length > 0 ? parseInt(bookings[0].total_count) : 0;
   const totalPages = Math.ceil(totalCount / limit);
-
+  
   res.json({
     success: true,
     data: {
@@ -327,31 +310,31 @@ router.get('/', authenticateToken, [
 }));
 
 // GET /api/bookings/:id - Buscar agendamento específico
-router.get('/:id', authenticateToken, [
+router.get('/:id', authenticate, [
   param('id').isUUID().withMessage('ID inválido')
 ], asyncHandler(async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     throw new ValidationError('ID inválido');
   }
-
+  
   const booking = await getBookingWithDetails(req.params.id);
   
   if (!booking) {
     throw new NotFoundError('Agendamento não encontrado');
   }
-
+  
   // Verificar autorização
   const canView = 
     req.user.role === 'admin' ||
     (req.user.role === 'therapist' && booking.therapist_email === req.user.email) ||
     (req.user.role === 'affiliate' && booking.affiliate_email === req.user.email) ||
     (req.user.role === 'client' && (booking.client_id === req.user.id || booking.client_email === req.user.email));
-
+  
   if (!canView) {
     throw new AuthorizationError('Acesso negado a este agendamento');
   }
-
+  
   res.json({
     success: true,
     data: { booking }
@@ -364,7 +347,7 @@ router.post('/', createBookingValidation, asyncHandler(async (req, res) => {
   if (!errors.isEmpty()) {
     throw new ValidationError('Dados inválidos', errors.array());
   }
-
+  
   const {
     serviceId,
     clientName,
@@ -375,9 +358,9 @@ router.post('/', createBookingValidation, asyncHandler(async (req, res) => {
     affiliateCode,
     notes
   } = req.body;
-
+  
   // Buscar dados do serviço
-  const serviceResult = await executeQuery(`
+  const serviceResult = await pool.query(`
     SELECT s.*, t.id as therapist_id, t.user_id as therapist_user_id,
            u.name as therapist_name, u.email as therapist_email
     FROM services s
@@ -385,71 +368,71 @@ router.post('/', createBookingValidation, asyncHandler(async (req, res) => {
     JOIN users u ON t.user_id = u.id
     WHERE s.id = $1 AND s.is_active = true
   `, [serviceId]);
-
+  
   if (serviceResult.rows.length === 0) {
     throw new NotFoundError('Serviço não encontrado ou inativo');
   }
-
+  
   const service = serviceResult.rows[0];
-
+  
   // Validar horário
   await validateBusinessHours(scheduledDate, scheduledTime);
   await validateAdvanceBooking(scheduledDate, scheduledTime);
-
+  
   // Verificar disponibilidade
   const isAvailable = await checkAvailability(
     service.therapist_id,
     scheduledDate,
     scheduledTime
   );
-
+  
   if (!isAvailable) {
     throw new ConflictError('Horário não disponível');
   }
-
+  
   // Buscar afiliado se código fornecido
   let affiliate = null;
   if (affiliateCode) {
-    const affiliateResult = await executeQuery(`
+    const affiliateResult = await pool.query(`
       SELECT a.*, u.name, u.email 
       FROM affiliates a
       JOIN users u ON a.user_id = u.id
       WHERE a.affiliate_code = $1 AND a.status = 'active'
     `, [affiliateCode]);
-
+    
     if (affiliateResult.rows.length === 0) {
       throw new NotFoundError('Código de afiliado inválido');
     }
-
+    
     affiliate = affiliateResult.rows[0];
   }
-
+  
   // Verificar se cliente existe
   let clientId = null;
-  const clientResult = await executeQuery(
+  const clientResult = await pool.query(
     'SELECT id FROM users WHERE email = $1',
     [clientEmail]
   );
-
+  
   if (clientResult.rows.length > 0) {
     clientId = clientResult.rows[0].id;
   }
-
+  
   // Calcular valores
   const servicePrice = parseFloat(service.price);
   const discountAmount = 0; // Implementar lógica de desconto se necessário
   const totalAmount = servicePrice - discountAmount;
-
+  
   // Calcular comissões
   let affiliateCommission = 0;
   let therapistCommission = 0;
-
+  
   if (affiliate) {
     affiliateCommission = (totalAmount * parseFloat(affiliate.commission_rate)) / 100;
   }
-
+  
   // Buscar taxa de comissão do terapeuta
-  const therapistResult = await executeQuery(
+  const therapistResult = await pool.query(
     'SELECT commission_rate FROM therapists WHERE id = $1',
     [service.therapist_id]
   );
@@ -458,52 +441,56 @@ router.post('/', createBookingValidation, asyncHandler(async (req, res) => {
     const therapistRate = parseFloat(therapistResult.rows[0].commission_rate);
     therapistCommission = (totalAmount * therapistRate) / 100;
   }
-
+  
   // Calcular horário de fim
   const endTime = moment(scheduledTime, 'HH:mm')
     .add(service.duration, 'minutes')
     .format('HH:mm');
-
-  // Criar agendamento
-  const bookingQuery = `
-    INSERT INTO bookings (
-      service_id, therapist_id, client_id, affiliate_id,
-      client_name, client_email, client_phone,
-      scheduled_date, scheduled_time, scheduled_end_time,
-      service_price, discount_amount, total_amount,
-      affiliate_commission, therapist_commission,
-      notes, status
-    ) VALUES (
-      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-      $11, $12, $13, $14, $15, $16, 'pending'
-    ) RETURNING id
-  `;
-
-  const bookingParams = [
-    serviceId,
-    service.therapist_id,
-    clientId,
-    affiliate?.id || null,
-    clientName,
-    clientEmail,
-    clientPhone || null,
-    scheduledDate,
-    scheduledTime,
-    endTime,
-    servicePrice,
-    discountAmount,
-    totalAmount,
-    affiliateCommission,
-    therapistCommission,
-    notes || null
-  ];
-
-  const bookingResult = await executeQuery(bookingQuery, bookingParams);
-  const bookingId = bookingResult.rows[0].id;
-
+  
+  // Criar agendamento em transação
+  const bookingResult = await transaction(async (client) => {
+    const bookingQuery = `
+      INSERT INTO bookings (
+        service_id, therapist_id, client_id, affiliate_id,
+        client_name, client_email, client_phone,
+        scheduled_date, scheduled_time, scheduled_end_time,
+        service_price, discount_amount, total_amount,
+        affiliate_commission, therapist_commission,
+        notes, status
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+        $11, $12, $13, $14, $15, $16, 'pending'
+      ) RETURNING id
+    `;
+    
+    const bookingParams = [
+      serviceId,
+      service.therapist_id,
+      clientId,
+      affiliate?.id || null,
+      clientName,
+      clientEmail,
+      clientPhone || null,
+      scheduledDate,
+      scheduledTime,
+      endTime,
+      servicePrice,
+      discountAmount,
+      totalAmount,
+      affiliateCommission,
+      therapistCommission,
+      notes || null
+    ];
+    
+    const result = await client.query(bookingQuery, bookingParams);
+    return result.rows[0].id;
+  });
+  
+  const bookingId = bookingResult;
+  
   // Buscar agendamento criado com detalhes
   const newBooking = await getBookingWithDetails(bookingId);
-
+  
   // Criar notificações
   try {
     // Notificar terapeuta
@@ -515,7 +502,7 @@ router.post('/', createBookingValidation, asyncHandler(async (req, res) => {
       { type: 'new_booking' },
       bookingId
     );
-
+    
     // Notificar afiliado se existir
     if (affiliate) {
       await createNotification(
@@ -527,25 +514,29 @@ router.post('/', createBookingValidation, asyncHandler(async (req, res) => {
         bookingId
       );
     }
-
+    
     // Enviar emails
-    await emailService.sendBookingConfirmation(clientEmail, {
-      clientName,
-      serviceName: service.name,
-      therapistName: service.therapist_name,
-      scheduledDate: moment(scheduledDate).format('DD/MM/YYYY'),
-      scheduledTime,
-      duration: service.duration,
-      totalAmount,
-      bookingId
+    await sendEmail({
+      to: clientEmail,
+      subject: 'Confirmação de Agendamento - Lunara',
+      template: 'booking-confirmation',
+      data: {
+        clientName,
+        serviceName: service.name,
+        therapistName: service.therapist_name,
+        scheduledDate: moment(scheduledDate).format('DD/MM/YYYY'),
+        scheduledTime,
+        duration: service.duration,
+        totalAmount,
+        bookingId
+      }
     });
-
   } catch (error) {
     logger.warn('Erro ao enviar notificações:', error);
   }
-
+  
   // Log da ação
-  logHelpers.audit('CREATE_BOOKING', {
+  logger.info('CREATE_BOOKING', {
     bookingId,
     clientEmail,
     serviceId,
@@ -554,7 +545,7 @@ router.post('/', createBookingValidation, asyncHandler(async (req, res) => {
     totalAmount,
     user: req.user?.email || 'public'
   });
-
+  
   res.status(201).json({
     success: true,
     message: 'Agendamento criado com sucesso',
@@ -563,37 +554,37 @@ router.post('/', createBookingValidation, asyncHandler(async (req, res) => {
 }));
 
 // PUT /api/bookings/:id - Atualizar agendamento
-router.put('/:id', authenticateToken, updateBookingValidation, asyncHandler(async (req, res) => {
+router.put('/:id', authenticate, updateBookingValidation, asyncHandler(async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     throw new ValidationError('Dados inválidos', errors.array());
   }
-
+  
   const bookingId = req.params.id;
   const updates = req.body;
-
+  
   // Buscar agendamento atual
   const currentBooking = await getBookingWithDetails(bookingId);
   
   if (!currentBooking) {
     throw new NotFoundError('Agendamento não encontrado');
   }
-
+  
   // Verificar autorização para editar
   const canEdit = 
     req.user.role === 'admin' ||
     (req.user.role === 'therapist' && currentBooking.therapist_email === req.user.email) ||
     (req.user.role === 'client' && (currentBooking.client_id === req.user.id || currentBooking.client_email === req.user.email));
-
+  
   if (!canEdit) {
     throw new AuthorizationError('Sem permissão para editar este agendamento');
   }
-
+  
   // Se alterando data/horário, verificar disponibilidade
   if (updates.scheduledDate || updates.scheduledTime) {
     const newDate = updates.scheduledDate || currentBooking.scheduled_date;
     const newTime = updates.scheduledTime || currentBooking.scheduled_time;
-
+    
     if (updates.scheduledDate || updates.scheduledTime) {
       await validateBusinessHours(newDate, newTime);
       
@@ -601,31 +592,31 @@ router.put('/:id', authenticateToken, updateBookingValidation, asyncHandler(asyn
       if (moment(`${newDate} ${newTime}`).isAfter(moment())) {
         await validateAdvanceBooking(newDate, newTime);
       }
-
+      
       const isAvailable = await checkAvailability(
         currentBooking.therapist_id,
         newDate,
         newTime,
         bookingId
       );
-
+      
       if (!isAvailable) {
         throw new ConflictError('Horário não disponível');
       }
     }
   }
-
+  
   // Construir query de update
   const updateFields = [];
   const updateParams = [];
   let paramCount = 0;
-
+  
   const allowedFields = [
     'status', 'scheduledDate', 'scheduledTime', 'notes', 
     'internalNotes', 'cancellationReason', 'noShowReason',
     'meetingLink', 'paymentStatus', 'paymentMethod'
   ];
-
+  
   const fieldMapping = {
     scheduledDate: 'scheduled_date',
     scheduledTime: 'scheduled_time',
@@ -636,7 +627,7 @@ router.put('/:id', authenticateToken, updateBookingValidation, asyncHandler(asyn
     paymentStatus: 'payment_status',
     paymentMethod: 'payment_method'
   };
-
+  
   Object.keys(updates).forEach(key => {
     if (allowedFields.includes(key) && updates[key] !== undefined) {
       const dbField = fieldMapping[key] || key;
@@ -644,7 +635,7 @@ router.put('/:id', authenticateToken, updateBookingValidation, asyncHandler(asyn
       updateParams.push(updates[key]);
     }
   });
-
+  
   // Adicionar timestamps baseado no status
   if (updates.status) {
     switch (updates.status) {
@@ -662,33 +653,33 @@ router.put('/:id', authenticateToken, updateBookingValidation, asyncHandler(asyn
         break;
     }
   }
-
+  
   if (updateFields.length === 0) {
     throw new ValidationError('Nenhum campo válido para atualização');
   }
-
+  
   updateFields.push(`updated_at = $${++paramCount}`);
   updateParams.push(new Date());
   updateParams.push(bookingId);
-
+  
   const updateQuery = `
     UPDATE bookings 
     SET ${updateFields.join(', ')}
     WHERE id = $${++paramCount}
     RETURNING *
   `;
-
-  await executeQuery(updateQuery, updateParams);
-
+  
+  await pool.query(updateQuery, updateParams);
+  
   // Buscar agendamento atualizado
   const updatedBooking = await getBookingWithDetails(bookingId);
-
+  
   // Enviar notificações se status mudou
   if (updates.status && updates.status !== currentBooking.status) {
     try {
       let notificationTitle = '';
       let notificationMessage = '';
-
+      
       switch (updates.status) {
         case 'confirmed':
           notificationTitle = 'Agendamento confirmado';
@@ -703,7 +694,7 @@ router.put('/:id', authenticateToken, updateBookingValidation, asyncHandler(asyn
           notificationMessage = 'Sua consulta foi concluída. Obrigado por escolher nossos serviços!';
           break;
       }
-
+      
       if (notificationTitle) {
         // Notificar cliente se tiver cadastro
         if (updatedBooking.client_id) {
@@ -716,42 +707,52 @@ router.put('/:id', authenticateToken, updateBookingValidation, asyncHandler(asyn
             bookingId
           );
         }
-
+        
         // Enviar email para cliente
         if (updates.status === 'confirmed') {
-          await emailService.sendBookingConfirmation(updatedBooking.client_email, {
-            clientName: updatedBooking.client_name,
-            serviceName: updatedBooking.service_name,
-            therapistName: updatedBooking.therapist_name,
-            scheduledDate: moment(updatedBooking.scheduled_date).format('DD/MM/YYYY'),
-            scheduledTime: updatedBooking.scheduled_time,
-            meetingLink: updatedBooking.meeting_link
+          await sendEmail({
+            to: updatedBooking.client_email,
+            subject: 'Agendamento Confirmado - Lunara',
+            template: 'booking-confirmation',
+            data: {
+              clientName: updatedBooking.client_name,
+              serviceName: updatedBooking.service_name,
+              therapistName: updatedBooking.therapist_name,
+              scheduledDate: moment(updatedBooking.scheduled_date).format('DD/MM/YYYY'),
+              scheduledTime: updatedBooking.scheduled_time,
+              meetingLink: updatedBooking.meeting_link
+            }
           });
         } else if (updates.status === 'cancelled') {
-          await emailService.sendBookingCancellation(updatedBooking.client_email, {
-            clientName: updatedBooking.client_name,
-            serviceName: updatedBooking.service_name,
-            scheduledDate: moment(updatedBooking.scheduled_date).format('DD/MM/YYYY'),
-            scheduledTime: updatedBooking.scheduled_time,
-            reason: updates.cancellationReason
+          await sendEmail({
+            to: updatedBooking.client_email,
+            subject: 'Agendamento Cancelado - Lunara',
+            template: 'booking-cancellation',
+            data: {
+              clientName: updatedBooking.client_name,
+              serviceName: updatedBooking.service_name,
+              therapistName: updatedBooking.therapist_name,
+              scheduledDate: moment(updatedBooking.scheduled_date).format('DD/MM/YYYY'),
+              scheduledTime: updatedBooking.scheduled_time,
+              reason: updates.cancellationReason
+            }
           });
         }
       }
-
     } catch (error) {
       logger.warn('Erro ao enviar notificações de atualização:', error);
     }
   }
-
+  
   // Log da ação
-  logHelpers.audit('UPDATE_BOOKING', {
+  logger.info('UPDATE_BOOKING', {
     bookingId,
     changes: updates,
     previousStatus: currentBooking.status,
     newStatus: updates.status,
     user: req.user.email
   });
-
+  
   res.json({
     success: true,
     message: 'Agendamento atualizado com sucesso',
@@ -759,8 +760,169 @@ router.put('/:id', authenticateToken, updateBookingValidation, asyncHandler(asyn
   });
 }));
 
+// PATCH /api/bookings/bulk-update - Atualizar múltiplos agendamentos (para drag & drop)
+router.patch('/bulk-update', authenticate, [
+  body('bookingIds').isArray().withMessage('IDs de agendamento devem ser um array'),
+  body('updates').isObject().withMessage('Atualizações devem ser um objeto'),
+  body('updates.scheduledDate').optional().isISO8601().withMessage('Data inválida'),
+  body('updates.scheduledTime').optional().matches(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/).withMessage('Horário inválido'),
+  body('updates.therapistId').optional().isUUID().withMessage('ID do terapeuta inválido')
+], asyncHandler(async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    throw new ValidationError('Dados inválidos', errors.array());
+  }
+  
+  const { bookingIds, updates } = req.body;
+  
+  // Verificar permissões
+  if (req.user.role !== 'admin' && req.user.role !== 'therapist') {
+    throw new AuthorizationError('Acesso negado');
+  }
+  
+  // Se for terapeuta, verificar se todos os agendamentos pertencem a ele
+  if (req.user.role === 'therapist') {
+    const therapistResult = await pool.query(
+      'SELECT id FROM therapists WHERE user_id = $1',
+      [req.user.id]
+    );
+    
+    if (therapistResult.rows.length === 0) {
+      throw new NotFoundError('Perfil de terapeuta não encontrado');
+    }
+    
+    const therapistId = therapistResult.rows[0].id;
+    
+    const bookingsCheck = await pool.query(
+      'SELECT id FROM bookings WHERE id = ANY($1) AND therapist_id = $2',
+      [bookingIds, therapistId]
+    );
+    
+    if (bookingsCheck.rows.length !== bookingIds.length) {
+      throw new AuthorizationError('Você só pode atualizar seus próprios agendamentos');
+    }
+  }
+  
+  // Processar atualizações em lote
+  const results = [];
+  
+  for (const bookingId of bookingIds) {
+    try {
+      // Buscar agendamento atual
+      const currentBooking = await getBookingWithDetails(bookingId);
+      
+      if (!currentBooking) {
+        results.push({ bookingId, success: false, error: 'Agendamento não encontrado' });
+        continue;
+      }
+      
+      // Se alterando data/horário, verificar disponibilidade
+      if (updates.scheduledDate || updates.scheduledTime) {
+        const newDate = updates.scheduledDate || currentBooking.scheduled_date;
+        const newTime = updates.scheduledTime || currentBooking.scheduled_time;
+        const therapistId = updates.therapistId || currentBooking.therapist_id;
+        
+        if (updates.scheduledDate || updates.scheduledTime) {
+          await validateBusinessHours(newDate, newTime);
+          
+          // Só validar antecedência se for no futuro
+          if (moment(`${newDate} ${newTime}`).isAfter(moment())) {
+            await validateAdvanceBooking(newDate, newTime);
+          }
+          
+          const isAvailable = await checkAvailability(
+            therapistId,
+            newDate,
+            newTime,
+            bookingId
+          );
+          
+          if (!isAvailable) {
+            results.push({ bookingId, success: false, error: 'Horário não disponível' });
+            continue;
+          }
+        }
+      }
+      
+      // Construir query de update
+      const updateFields = [];
+      const updateParams = [];
+      let paramCount = 0;
+      
+      if (updates.scheduledDate) {
+        updateFields.push(`scheduled_date = $${++paramCount}`);
+        updateParams.push(updates.scheduledDate);
+      }
+      
+      if (updates.scheduledTime) {
+        updateFields.push(`scheduled_time = $${++paramCount}`);
+        updateParams.push(updates.scheduledTime);
+        
+        // Calcular novo horário de término
+        const serviceResult = await pool.query(
+          'SELECT duration FROM services WHERE id = $1',
+          [currentBooking.service_id]
+        );
+        
+        if (serviceResult.rows.length > 0) {
+          const duration = serviceResult.rows[0].duration;
+          const endTime = moment(updates.scheduledTime, 'HH:mm')
+            .add(duration, 'minutes')
+            .format('HH:mm');
+          
+          updateFields.push(`scheduled_end_time = $${++paramCount}`);
+          updateParams.push(endTime);
+        }
+      }
+      
+      if (updates.therapistId) {
+        updateFields.push(`therapist_id = $${++paramCount}`);
+        updateParams.push(updates.therapistId);
+      }
+      
+      if (updateFields.length === 0) {
+        results.push({ bookingId, success: false, error: 'Nenhum campo válido para atualização' });
+        continue;
+      }
+      
+      updateFields.push(`updated_at = $${++paramCount}`);
+      updateParams.push(new Date());
+      updateParams.push(bookingId);
+      
+      const updateQuery = `
+        UPDATE bookings 
+        SET ${updateFields.join(', ')}
+        WHERE id = $${++paramCount}
+      `;
+      
+      await pool.query(updateQuery, updateParams);
+      
+      // Buscar agendamento atualizado
+      const updatedBooking = await getBookingWithDetails(bookingId);
+      
+      results.push({ bookingId, success: true, booking: updatedBooking });
+    } catch (error) {
+      results.push({ bookingId, success: false, error: error.message });
+    }
+  }
+  
+  // Log da ação
+  logger.info('BULK_UPDATE_BOOKINGS', {
+    bookingIds,
+    updates,
+    user: req.user.email,
+    results: results.filter(r => r.success).length
+  });
+  
+  res.json({
+    success: true,
+    message: `${results.filter(r => r.success).length} de ${bookingIds.length} agendamentos atualizados`,
+    data: { results }
+  });
+}));
+
 // DELETE /api/bookings/:id - Cancelar agendamento
-router.delete('/:id', authenticateToken, [
+router.delete('/:id', authenticate, [
   param('id').isUUID().withMessage('ID inválido'),
   body('reason').optional().isLength({ max: 500 }).withMessage('Motivo muito longo')
 ], asyncHandler(async (req, res) => {
@@ -768,49 +930,49 @@ router.delete('/:id', authenticateToken, [
   if (!errors.isEmpty()) {
     throw new ValidationError('Dados inválidos', errors.array());
   }
-
+  
   const bookingId = req.params.id;
   const { reason } = req.body;
-
+  
   // Buscar agendamento
   const booking = await getBookingWithDetails(bookingId);
   
   if (!booking) {
     throw new NotFoundError('Agendamento não encontrado');
   }
-
+  
   // Verificar se já foi cancelado
   if (booking.status === 'cancelled') {
     throw new ConflictError('Agendamento já foi cancelado');
   }
-
+  
   // Verificar autorização
   const canCancel = 
     req.user.role === 'admin' ||
     (req.user.role === 'therapist' && booking.therapist_email === req.user.email) ||
     (req.user.role === 'client' && (booking.client_id === req.user.id || booking.client_email === req.user.email));
-
+  
   if (!canCancel) {
     throw new AuthorizationError('Sem permissão para cancelar este agendamento');
   }
-
+  
   // Verificar política de cancelamento
   const appointmentDateTime = moment(`${booking.scheduled_date} ${booking.scheduled_time}`);
   const now = moment();
   const hoursUntilAppointment = appointmentDateTime.diff(now, 'hours');
-
-  const settingsResult = await executeQuery(`
+  
+  const settingsResult = await pool.query(`
     SELECT value FROM settings WHERE key = 'cancellation_hours'
   `);
   
   const minCancellationHours = parseInt(settingsResult.rows[0]?.value) || 24;
-
+  
   if (hoursUntilAppointment < minCancellationHours && req.user.role !== 'admin') {
     throw new ValidationError(`Cancelamentos devem ser feitos com pelo menos ${minCancellationHours} horas de antecedência`);
   }
-
+  
   // Cancelar agendamento
-  await executeQuery(`
+  await pool.query(`
     UPDATE bookings 
     SET status = 'cancelled', 
         cancelled_at = NOW(), 
@@ -818,12 +980,12 @@ router.delete('/:id', authenticateToken, [
         updated_at = NOW()
     WHERE id = $2
   `, [reason || 'Cancelado pelo usuário', bookingId]);
-
+  
   // Notificações e emails
   try {
     // Notificar terapeuta se cancelamento foi feito pelo cliente
     if (req.user.role === 'client') {
-      const therapistResult = await executeQuery(
+      const therapistResult = await pool.query(
         'SELECT user_id FROM therapists WHERE id = $1',
         [booking.therapist_id]
       );
@@ -839,29 +1001,33 @@ router.delete('/:id', authenticateToken, [
         );
       }
     }
-
+    
     // Enviar email de cancelamento
-    await emailService.sendBookingCancellation(booking.client_email, {
-      clientName: booking.client_name,
-      serviceName: booking.service_name,
-      therapistName: booking.therapist_name,
-      scheduledDate: moment(booking.scheduled_date).format('DD/MM/YYYY'),
-      scheduledTime: booking.scheduled_time,
-      reason: reason || 'Cancelado'
+    await sendEmail({
+      to: booking.client_email,
+      subject: 'Agendamento Cancelado - Lunara',
+      template: 'booking-cancellation',
+      data: {
+        clientName: booking.client_name,
+        serviceName: booking.service_name,
+        therapistName: booking.therapist_name,
+        scheduledDate: moment(booking.scheduled_date).format('DD/MM/YYYY'),
+        scheduledTime: booking.scheduled_time,
+        reason: reason || 'Cancelado'
+      }
     });
-
   } catch (error) {
     logger.warn('Erro ao enviar notificações de cancelamento:', error);
   }
-
+  
   // Log da ação
-  logHelpers.audit('CANCEL_BOOKING', {
+  logger.info('CANCEL_BOOKING', {
     bookingId,
     reason,
     cancelledBy: req.user.email,
     hoursInAdvance: hoursUntilAppointment
   });
-
+  
   res.json({
     success: true,
     message: 'Agendamento cancelado com sucesso'
@@ -878,24 +1044,24 @@ router.get('/availability/:therapistId', [
   if (!errors.isEmpty()) {
     throw new ValidationError('Parâmetros inválidos', errors.array());
   }
-
+  
   const { therapistId } = req.params;
   const { date, duration = 60 } = req.query;
-
+  
   // Verificar se terapeuta existe
-  const therapistResult = await executeQuery(`
+  const therapistResult = await pool.query(`
     SELECT t.*, u.name 
     FROM therapists t
     JOIN users u ON t.user_id = u.id
     WHERE t.id = $1 AND t.status = 'active'
   `, [therapistId]);
-
+  
   if (therapistResult.rows.length === 0) {
     throw new NotFoundError('Terapeuta não encontrado');
   }
-
+  
   // Buscar configurações de horário
-  const settingsResult = await executeQuery(`
+  const settingsResult = await pool.query(`
     SELECT value FROM settings WHERE key = 'business_hours'
   `);
   
@@ -903,13 +1069,13 @@ router.get('/availability/:therapistId', [
     start: '08:00',
     end: '18:00'
   };
-
+  
   // Gerar slots disponíveis
   const slots = [];
   const startTime = moment(`${date} ${businessHours.start}`);
   const endTime = moment(`${date} ${businessHours.end}`);
   const slotDuration = 30; // slots de 30 minutos
-
+  
   while (startTime.clone().add(duration, 'minutes').isSameOrBefore(endTime)) {
     const timeSlot = startTime.format('HH:mm');
     
@@ -920,10 +1086,10 @@ router.get('/availability/:therapistId', [
       time: timeSlot,
       available: isAvailable
     });
-
+    
     startTime.add(slotDuration, 'minutes');
   }
-
+  
   res.json({
     success: true,
     data: {

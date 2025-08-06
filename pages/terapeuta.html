@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel do Terapeuta - Lunara</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/responsive.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .dashboard-terapeuta {
+            background: linear-gradient(135deg, #2a7bc4 0%, #1a5490 100%);
+            color: white;
+            padding: 6rem 0 4rem;
+        }
+        .dashboard-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 3rem;
+        }
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        .user-avatar {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #1a5490;
+            font-size: 1.5rem;
+            font-weight: bold;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 2rem;
+            margin-bottom: 3rem;
+        }
+        .stat-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 2rem;
+            text-align: center;
+            transition: transform 0.3s;
+        }
+        .stat-card:hover {
+            transform: translateY(-10px);
+        }
+        .stat-card i {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            color: #ffd700;
+        }
+        .stat-card h3 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+        }
+        .schedule-section {
+            background: white;
+            color: #333;
+            border-radius: 15px;
+            padding: 2rem;
+            margin-top: 3rem;
+        }
+        .schedule-tabs {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            border-bottom: 1px solid #eee;
+        }
+        .tab-btn {
+            background: none;
+            border: none;
+            padding: 1rem 2rem;
+            cursor: pointer;
+            font-size: 1rem;
+            color: #666;
+            position: relative;
+        }
+        .tab-btn.active {
+            color: #1a5490;
+            font-weight: bold;
+        }
+        .tab-btn.active::after {
+            content: '';
+            position: absolute;
+            bottom: -1px;
+            left: 0;
+            width: 100%;
+            height: 3px;
+            background: #1a5490;
+        }
+        .schedule-list {
+            display: none;
+        }
+        .schedule-list.active {
+            display: block;
+        }
+        .schedule-item {
+            display: flex;
+            align-items: center;
+            padding: 1rem;
+            border-radius: 10px;
+            margin-bottom: 1rem;
+            background: #f8f9fa;
+            transition: all 0.3s;
+        }
+        .schedule-item:hover {
+            background: #e9ecef;
+            transform: translateX(5px);
+        }
+        .schedule-time {
+            font-weight: bold;
+            color: #1a5490;
+            min-width: 80px;
+        }
+        .schedule-patient {
+            flex: 1;
+            margin-left: 1rem;
+        }
+        .schedule-patient h4 {
+            margin-bottom: 0.3rem;
+        }
+        .schedule-patient p {
+            color: #666;
+            font-size: 0.9rem;
+        }
+        .schedule-action {
+            margin-left: 1rem;
+        }
+        .btn-small {
+            background: #1a5490;
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .btn-small:hover {
+            background: #164070;
+        }
+        .patients-section {
+            background: white;
+            color: #333;
+            border-radius: 15px;
+            padding: 2rem;
+            margin-top: 3rem;
+        }
+        .patient-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 1.5rem;
+            margin-top: 2rem;
+        }
+        .patient-card {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 1.5rem;
+            transition: all 0.3s;
+        }
+        .patient-card:hover {
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            transform: translateY(-5px);
+        }
+        .patient-header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+        .patient-avatar {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: #1a5490;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+        .patient-info h4 {
+            margin-bottom: 0.2rem;
+        }
+        .patient-info p {
+            color: #666;
+            font-size: 0.9rem;
+        }
+        .patient-details {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 1rem;
+        }
+        .patient-detail {
+            text-align: center;
+        }
+        .patient-detail span {
+            display: block;
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: #1a5490;
+        }
+        .patient-detail small {
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <div class="logo">
+                <a href="terapeuta.html">
+                    <img src="imagens/logo.webp" alt="Logo Lunara Terapeutas">
+                </a>
+            </div>
+            <nav>
+                <ul class="nav-links">
+                    <li><a href="terapeuta.html" class="active">Painel</a></li>
+                    <li><a href="#agenda">Agenda</a></li>
+                    <li><a href="#pacientes">Pacientes</a></li>
+                    <li><a href="#prontuarios">Prontuários</a></li>
+                    <li><a href="index.html">Sair</a></li>
+                </ul>
+                <div class="hamburger">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
+            </nav>
+        </div>
+    </header>
+
+    <section class="dashboard-terapeuta">
+        <div class="container">
+            <div class="dashboard-header">
+                <div>
+                    <h1>Painel do Terapeuta</h1>
+                    <p>Gerencie sua agenda e pacientes</p>
+                </div>
+                <div class="user-info">
+                    <div class="user-avatar">DS</div>
+                    <div>
+                        <h3>Dra. Sofia Mendes</h3>
+                        <p>Psicóloga Clínica</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <i class="fas fa-calendar-check"></i>
+                    <h3>12</h3>
+                    <p>Sessões Hoje</p>
+                </div>
+                <div class="stat-card">
+                    <i class="fas fa-users"></i>
+                    <h3>48</h3>
+                    <p>Pacientes Ativos</p>
+                </div>
+                <div class="stat-card">
+                    <i class="fas fa-clock"></i>
+                    <h3>2h</h3>
+                    <p>Disponibilidade</p>
+                </div>
+                <div class="stat-card">
+                    <i class="fas fa-star"></i>
+                    <h3>4.9</h3>
+                    <p>Avaliação Média</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="schedule-section container">
+        <h2>Agenda de Hoje</h2>
+        <div class="schedule-tabs">
+            <button class="tab-btn active" data-tab="today">Hoje</button>
+            <button class="tab-btn" data-tab="week">Esta Semana</button>
+            <button class="tab-btn" data-tab="month">Este Mês</button>
+        </div>
+
+        <div class="schedule-list active" id="today">
+            <div class="schedule-item">
+                <div class="schedule-time">09:00</div>
+                <div class="schedule-patient">
+                    <h4>Carlos Alberto</h4>
+                    <p>Terapia Cognitivo-Comportamental</p>
+                </div>
+                <div class="schedule-action">
+                    <button class="btn-small">Iniciar Sessão</button>
+                </div>
+            </div>
+            <div class="schedule-item">
+                <div class="schedule-time">10:30</div>
+                <div class="schedule-patient">
+                    <h4>Mariana Santos</h4>
+                    <p>Terapia de Casal</p>
+                </div>
+                <div class="schedule-action">
+                    <button class="btn-small">Iniciar Sessão</button>
+                </div>
+            </div>
+            <div class="schedule-item">
+                <div class="schedule-time">14:00</div>
+                <div class="schedule-patient">
+                    <h4>Ricardo Oliveira</h4>
+                    <p>Terapia Familiar</p>
+                </div>
+                <div class="schedule-action">
+                    <button class="btn-small">Iniciar Sessão</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="schedule-list" id="week">
+            <div class="schedule-item">
+                <div class="schedule-time">Seg 09:00</div>
+                <div class="schedule-patient">
+                    <h4>Carlos Alberto</h4>
+                    <p>Terapia Cognitivo-Comportamental</p>
+                </div>
+                <div class="schedule-action">
+                    <button class="btn-small">Iniciar Sessão</button>
+                </div>
+            </div>
+            <div class="schedule-item">
+                <div class="schedule-time">Ter 10:30</div>
+                <div class="schedule-patient">
+                    <h4>Mariana Santos</h4>
+                    <p>Terapia de Casal</p>
+                </div>
+                <div class="schedule-action">
+                    <button class="btn-small">Iniciar Sessão</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="schedule-list" id="month">
+            <div class="schedule-item">
+                <div class="schedule-time">23/10 09:00</div>
+                <div class="schedule-patient">
+                    <h4>Carlos Alberto</h4>
+                    <p>Terapia Cognitivo-Comportamental</p>
+                </div>
+                <div class="schedule-action">
+                    <button class="btn-small">Iniciar Sessão</button>
+                </div>
+            </div>
+            <div class="schedule-item">
+                <div class="schedule-time">24/10 10:30</div>
+                <div class="schedule-patient">
+                    <h4>Mariana Santos</h4>
+                    <p>Terapia de Casal</p>
+                </div>
+                <div class="schedule-action">
+                    <button class="btn-small">Iniciar Sessão</button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="patients-section container">
+        <h2>Meus Pacientes</h2>
+        <div class="patient-grid">
+            <div class="patient-card">
+                <div class="patient-header">
+                    <div class="patient-avatar">CA</div>
+                    <div class="patient-info">
+                        <h4>Carlos Alberto</h4>
+                        <p>Última sessão: 20/10/2023</p>
+                    </div>
+                </div>
+                <div class="patient-details">
+                    <div class="patient-detail">
+                        <span>12</span>
+                        <small>Sessões</small>
+                    </div>
+                    <div class="patient-detail">
+                        <span>3</span>
+                        <small>Meses</small>
+                    </div>
+                    <div class="patient-detail">
+                        <span>Ativo</span>
+                        <small>Status</small>
+                    </div>
+                </div>
+            </div>
+            <div class="patient-card">
+                <div class="patient-header">
+                    <div class="patient-avatar">MS</div>
+                    <div class="patient-info">
+                        <h4>Mariana Santos</h4>
+                        <p>Última sessão: 18/10/2023</p>
+                    </div>
+                </div>
+                <div class="patient-details">
+                    <div class="patient-detail">
+                        <span>8</span>
+                        <small>Sessões</small>
+                    </div>
+                    <div class="patient-detail">
+                        <span>2</span>
+                        <small>Meses</small>
+                    </div>
+                    <div class="patient-detail">
+                        <span>Ativo</span>
+                        <small>Status</small>
+                    </div>
+                </div>
+            </div>
+            <div class="patient-card">
+                <div class="patient-header">
+                    <div class="patient-avatar">RO</div>
+                    <div class="patient-info">
+                        <h4>Ricardo Oliveira</h4>
+                        <p>Última sessão: 15/10/2023</p>
+                    </div>
+                </div>
+                <div class="patient-details">
+                    <div class="patient-detail">
+                        <span>5</span>
+                        <small>Sessões</small>
+                    </div>
+                    <div class="patient-detail">
+                        <span>1</span>
+                        <small>Mês</small>
+                    </div>
+                    <div class="patient-detail">
+                        <span>Ativo</span>
+                        <small>Status</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2023 Lunara Terapeutas. Todos os direitos reservados.</p>
+        </div>
+    </footer>
+
+    <script src="js/script.js"></script>
+    <script>
+        // Script para as abas da agenda
+        document.addEventListener('DOMContentLoaded', function() {
+            const tabBtns = document.querySelectorAll('.tab-btn');
+            const scheduleLists = document.querySelectorAll('.schedule-list');
+
+            tabBtns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    // Remove a classe active de todos os botões e listas
+                    tabBtns.forEach(b => b.classList.remove('active'));
+                    scheduleLists.forEach(l => l.classList.remove('active'));
+
+                    // Adiciona a classe active ao botão clicado
+                    btn.classList.add('active');
+
+                    // Mostra a lista correspondente
+                    const tabId = btn.getAttribute('data-tab');
+                    document.getElementById(tabId).classList.add('active');
+                });
+            });
+        });
+    </script>
+</body>
+</html>

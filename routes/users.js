@@ -1,19 +1,16 @@
 // routes/users.js
 // Rotas para usuários - Lunara Afiliados
-
 const express = require('express');
 const { body, param, query, validationResult } = require('express-validator');
-
+const bcrypt = require('bcrypt');
 const { pool, transaction } = require('../config/database');
 const { authenticate, authorize } = require('../middleware/auth');
 const logger = require('../utils/logger');
-
 const router = express.Router();
 
 // =============================================
 // VALIDAÇÕES
 // =============================================
-
 const profileUpdateValidation = [
   body('name')
     .optional()
@@ -38,7 +35,11 @@ const profileUpdateValidation = [
   body('preferences.timezone')
     .optional()
     .isLength({ min: 3, max: 50 })
-    .withMessage('Timezone inválido')
+    .withMessage('Timezone inválido'),
+  body('preferences.notifications')
+    .optional()
+    .isObject()
+    .withMessage('Preferências de notificações devem ser um objeto')
 ];
 
 const changePasswordValidation = [
@@ -46,10 +47,10 @@ const changePasswordValidation = [
     .notEmpty()
     .withMessage('Senha atual é obrigatória'),
   body('new_password')
-    .isLength({ min: 6 })
-    .withMessage('Nova senha deve ter pelo menos 6 caracteres')
-    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
-    .withMessage('Nova senha deve conter ao menos: 1 letra minúscula, 1 maiúscula e 1 número'),
+    .isLength({ min: 8 })
+    .withMessage('Nova senha deve ter pelo menos 8 caracteres')
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
+    .withMessage('Nova senha deve conter ao menos: 1 letra minúscula, 1 maiúscula, 1 número e 1 caractere especial'),
   body('confirm_password')
     .custom((value, { req }) => {
       if (value !== req.body.new_password) {
@@ -59,15 +60,61 @@ const changePasswordValidation = [
     })
 ];
 
+const accountDeletionValidation = [
+  body('confirmation')
+    .equals('DELETE')
+    .withMessage('Confirmação deve ser exatamente "DELETE"'),
+  body('reason')
+    .optional()
+    .isLength({ max: 500 })
+    .withMessage('Motivo deve ter no máximo 500 caracteres')
+];
+
+// =============================================
+// FUNÇÕES AUXILIARES
+// =============================================
+// Buscar preferências padrão
+const getDefaultPreferences = () => {
+  return {
+    theme: 'light',
+    language: 'pt',
+    timezone: 'America/Sao_Paulo',
+    notifications: {
+      email: true,
+      push: true,
+      sms: false
+    },
+    calendar: {
+      startOfWeek: 1, // 0 = Domingo, 1 = Segunda
+      timeFormat: '24h'
+    }
+  };
+};
+
+// Formatar dados do usuário para resposta
+const formatUserData = (user) => {
+  const { password_hash, password_reset_token, password_reset_expires, ...safeUser } = user;
+  
+  // Garantir que preferences seja um objeto
+  if (!safeUser.preferences || typeof safeUser.preferences === 'string') {
+    try {
+      safeUser.preferences = safeUser.preferences ? JSON.parse(safeUser.preferences) : getDefaultPreferences();
+    } catch (e) {
+      safeUser.preferences = getDefaultPreferences();
+    }
+  }
+  
+  return safeUser;
+};
+
 // =============================================
 // ROTAS
 // =============================================
-
 // GET /api/users/profile - Obter perfil do usuário logado
 router.get('/profile', authenticate, async (req, res, next) => {
   try {
     const userId = req.user.id;
-
+    
     // Buscar dados completos do usuário
     const userResult = await pool.query(`
       SELECT 
@@ -95,24 +142,20 @@ router.get('/profile', authenticate, async (req, res, next) => {
       LEFT JOIN affiliates a ON u.id = a.user_id
       WHERE u.id = $1
     `, [userId]);
-
+    
     if (userResult.rows.length === 0) {
       return res.status(404).json({
         success: false,
         message: 'Usuário não encontrado'
       });
     }
-
-    const user = userResult.rows[0];
     
-    // Remover dados sensíveis
-    const { password_hash, password_reset_token, password_reset_expires, ...safeUser } = user;
-
+    const user = formatUserData(userResult.rows[0]);
+    
     res.json({
       success: true,
-      data: safeUser
+      data: user
     });
-
   } catch (error) {
     next(error);
   }
@@ -129,32 +172,44 @@ router.put('/profile', authenticate, profileUpdateValidation, async (req, res, n
         errors: errors.array()
       });
     }
-
+    
     const userId = req.user.id;
     const updateData = req.body;
-
+    
     const result = await transaction(async (client) => {
       // Atualizar dados principais na tabela users
       const userFields = [];
       const userValues = [];
       let userParamIndex = 1;
-
       const allowedUserFields = ['name', 'phone', 'clinic_name', 'preferences'];
       
       Object.keys(updateData).forEach(key => {
         if (allowedUserFields.includes(key) && updateData[key] !== undefined) {
           userFields.push(`${key} = $${userParamIndex}`);
           
-          // Para preferences, converter para JSON
+          // Para preferences, mesclar com existentes
           if (key === 'preferences') {
-            userValues.push(JSON.stringify(updateData[key]));
+            // Buscar preferências atuais
+            const currentPrefsResult = await client.query(
+              'SELECT preferences FROM users WHERE id = $1',
+              [userId]
+            );
+            
+            const currentPrefs = currentPrefsResult.rows[0]?.preferences || {};
+            const currentPrefsObj = typeof currentPrefs === 'string' 
+              ? JSON.parse(currentPrefs) 
+              : currentPrefs;
+            
+            // Mesclar preferências
+            const mergedPrefs = { ...currentPrefsObj, ...updateData[key] };
+            userValues.push(JSON.stringify(mergedPrefs));
           } else {
             userValues.push(updateData[key]);
           }
           userParamIndex++;
         }
       });
-
+      
       if (userFields.length > 0) {
         userFields.push(`updated_at = NOW()`);
         
@@ -164,12 +219,12 @@ router.put('/profile', authenticate, profileUpdateValidation, async (req, res, n
           WHERE id = $${userParamIndex}
           RETURNING id, name, email, phone, clinic_name, preferences, updated_at
         `;
+        
         userValues.push(userId);
-
         const updatedUserResult = await client.query(userUpdateQuery, userValues);
         return updatedUserResult.rows[0];
       }
-
+      
       // Se não houver campos para atualizar, retornar dados atuais
       const currentUserResult = await client.query(`
         SELECT id, name, email, phone, clinic_name, preferences, updated_at
@@ -179,15 +234,13 @@ router.put('/profile', authenticate, profileUpdateValidation, async (req, res, n
       
       return currentUserResult.rows[0];
     });
-
+    
     logger.info(`Perfil atualizado: ${req.user.email}`);
-
     res.json({
       success: true,
       message: 'Perfil atualizado com sucesso',
       data: result
     });
-
   } catch (error) {
     next(error);
   }
@@ -204,27 +257,26 @@ router.put('/change-password', authenticate, changePasswordValidation, async (re
         errors: errors.array()
       });
     }
-
+    
     const userId = req.user.id;
     const { current_password, new_password } = req.body;
-
+    
     // Buscar usuário e verificar senha atual
     const userResult = await pool.query(
       'SELECT password_hash FROM users WHERE id = $1',
       [userId]
     );
-
+    
     if (userResult.rows.length === 0) {
       return res.status(404).json({
         success: false,
         message: 'Usuário não encontrado'
       });
     }
-
+    
     const user = userResult.rows[0];
-
+    
     // Verificar senha atual
-    const bcrypt = require('bcrypt');
     const passwordMatch = await bcrypt.compare(current_password, user.password_hash);
     
     if (!passwordMatch) {
@@ -233,27 +285,25 @@ router.put('/change-password', authenticate, changePasswordValidation, async (re
         message: 'Senha atual incorreta'
       });
     }
-
+    
     // Gerar hash da nova senha
     const newPasswordHash = await bcrypt.hash(new_password, 12);
-
+    
     // Atualizar senha no banco
     await pool.query(`
       UPDATE users 
       SET password_hash = $1, updated_at = NOW()
       WHERE id = $2
     `, [newPasswordHash, userId]);
-
+    
     // Invalidar todas as sessões existentes (forçar novo login)
     await pool.query('DELETE FROM sessions WHERE user_id = $1', [userId]);
-
+    
     logger.info(`Senha alterada: ${req.user.email}`);
-
     res.json({
       success: true,
       message: 'Senha alterada com sucesso. Faça login novamente.'
     });
-
   } catch (error) {
     next(error);
   }
@@ -264,7 +314,8 @@ router.get('/dashboard', authenticate, async (req, res, next) => {
   try {
     const userId = req.user.id;
     const userRole = req.user.role;
-
+    const { period = '30' } = req.query; // dias
+    
     // Estatísticas básicas
     let dashboardData = {
       user: {
@@ -274,54 +325,102 @@ router.get('/dashboard', authenticate, async (req, res, next) => {
       },
       summary: {},
       recent_activity: [],
-      notifications: []
+      notifications: [],
+      charts: {}
     };
-
+    
+    // Calcular período para filtros
+    let periodCondition = '';
+    if (period === '7') {
+      periodCondition = "AND created_at >= CURRENT_DATE - INTERVAL '7 days'";
+    } else if (period === '30') {
+      periodCondition = "AND created_at >= CURRENT_DATE - INTERVAL '30 days'";
+    } else if (period === '90') {
+      periodCondition = "AND created_at >= CURRENT_DATE - INTERVAL '90 days'";
+    }
+    
     if (userRole === 'terapeuta') {
       // Estatísticas para terapeuta
       const statsResult = await pool.query(`
         SELECT 
-          COUNT(a.id) as total_appointments,
-          COUNT(CASE WHEN a.status = 'agendado' THEN 1 END) as pending_appointments,
-          COUNT(CASE WHEN a.status = 'concluido' THEN 1 END) as completed_appointments,
-          COUNT(CASE WHEN a.appointment_date >= CURRENT_DATE AND a.appointment_date < CURRENT_DATE + INTERVAL '7 days' THEN 1 END) as upcoming_week,
-          COALESCE(SUM(CASE WHEN a.status = 'concluido' AND a.appointment_date >= DATE_TRUNC('month', CURRENT_DATE) THEN a.price ELSE 0 END), 0) as revenue_this_month,
-          COUNT(DISTINCT a.patient_id) as total_patients
-        FROM appointments a
-        WHERE a.therapist_id = $1
+          COUNT(b.id) as total_bookings,
+          COUNT(CASE WHEN b.status = 'pending' THEN 1 END) as pending_bookings,
+          COUNT(CASE WHEN b.status = 'confirmed' THEN 1 END) as confirmed_bookings,
+          COUNT(CASE WHEN b.status = 'completed' THEN 1 END) as completed_bookings,
+          COUNT(CASE WHEN b.status = 'cancelled' THEN 1 END) as cancelled_bookings,
+          COUNT(CASE WHEN b.date >= CURRENT_DATE AND b.date < CURRENT_DATE + INTERVAL '7 days' THEN 1 END) as upcoming_week,
+          COALESCE(SUM(CASE WHEN b.status = 'completed' AND b.date >= DATE_TRUNC('month', CURRENT_DATE) THEN s.price ELSE 0 END), 0) as revenue_this_month,
+          COUNT(DISTINCT b.client_id) as total_clients
+        FROM bookings b
+        LEFT JOIN services s ON b.service_id = s.id
+        WHERE b.therapist_id = $1 ${periodCondition}
       `, [userId]);
-
+      
       const stats = statsResult.rows[0];
-
       dashboardData.summary = {
-        total_appointments: parseInt(stats.total_appointments) || 0,
-        pending_appointments: parseInt(stats.pending_appointments) || 0,
-        completed_appointments: parseInt(stats.completed_appointments) || 0,
+        total_bookings: parseInt(stats.total_bookings) || 0,
+        pending_bookings: parseInt(stats.pending_bookings) || 0,
+        confirmed_bookings: parseInt(stats.confirmed_bookings) || 0,
+        completed_bookings: parseInt(stats.completed_bookings) || 0,
+        cancelled_bookings: parseInt(stats.cancelled_bookings) || 0,
         upcoming_week: parseInt(stats.upcoming_week) || 0,
         revenue_this_month: parseFloat(stats.revenue_this_month) || 0,
-        total_patients: parseInt(stats.total_patients) || 0
+        total_clients: parseInt(stats.total_clients) || 0
       };
-
+      
       // Próximos agendamentos
       const upcomingResult = await pool.query(`
         SELECT 
-          a.id,
-          a.appointment_date,
-          a.appointment_time,
-          a.type,
-          a.status,
-          u.name as patient_name
-        FROM appointments a
-        LEFT JOIN users u ON a.patient_id = u.id
-        WHERE a.therapist_id = $1 
-          AND a.appointment_date >= CURRENT_DATE
-          AND a.status IN ('agendado', 'confirmado')
-        ORDER BY a.appointment_date, a.appointment_time
+          b.id,
+          b.date,
+          b.start_time,
+          b.status,
+          s.name as service_name,
+          u.name as client_name
+        FROM bookings b
+        LEFT JOIN services s ON b.service_id = s.id
+        LEFT JOIN users u ON b.client_id = u.id
+        WHERE b.therapist_id = $1 
+          AND b.date >= CURRENT_DATE
+          AND b.status IN ('pending', 'confirmed')
+        ORDER BY b.date, b.start_time
         LIMIT 5
       `, [userId]);
-
+      
       dashboardData.recent_activity = upcomingResult.rows;
-
+      
+      // Dados para gráficos
+      // Evolução mensal
+      const monthlyEvolutionResult = await pool.query(`
+        SELECT 
+          DATE_TRUNC('month', date) as month,
+          COUNT(*) as total,
+          SUM(s.price) as revenue
+        FROM bookings b
+        LEFT JOIN services s ON b.service_id = s.id
+        WHERE b.therapist_id = $1 
+          AND b.date >= CURRENT_DATE - INTERVAL '12 months'
+        GROUP BY DATE_TRUNC('month', date)
+        ORDER BY month
+      `, [userId]);
+      
+      dashboardData.charts.monthly_evolution = monthlyEvolutionResult.rows;
+      
+      // Serviços mais populares
+      const popularServicesResult = await pool.query(`
+        SELECT 
+          s.name,
+          COUNT(*) as count
+        FROM bookings b
+        JOIN services s ON b.service_id = s.id
+        WHERE b.therapist_id = $1 ${periodCondition}
+        GROUP BY s.id, s.name
+        ORDER BY count DESC
+        LIMIT 5
+      `, [userId]);
+      
+      dashboardData.charts.popular_services = popularServicesResult.rows;
+      
     } else if (userRole === 'afiliado') {
       // Estatísticas para afiliado
       const affiliateResult = await pool.query(`
@@ -330,25 +429,24 @@ router.get('/dashboard', authenticate, async (req, res, next) => {
           a.commission_rate,
           a.total_earnings,
           a.total_referrals,
-          COALESCE(SUM(c.amount), 0) as earnings_this_month
+          COALESCE(SUM(CASE WHEN c.created_at >= DATE_TRUNC('month', CURRENT_DATE) AND c.status = 'paid' THEN c.amount ELSE 0 END), 0) as earnings_this_month,
+          COALESCE(SUM(CASE WHEN c.created_at >= CURRENT_DATE - INTERVAL '30 days' AND c.status = 'paid' THEN c.amount ELSE 0 END), 0) as earnings_last_30_days
         FROM affiliates a
-        LEFT JOIN commissions c ON a.user_id = c.affiliate_id 
-          AND c.created_at >= DATE_TRUNC('month', CURRENT_DATE)
-          AND c.status = 'paid'
+        LEFT JOIN commissions c ON a.id = c.affiliate_id
         WHERE a.user_id = $1
         GROUP BY a.affiliate_code, a.commission_rate, a.total_earnings, a.total_referrals
       `, [userId]);
-
+      
       const affiliate = affiliateResult.rows[0] || {};
-
       dashboardData.summary = {
         affiliate_code: affiliate.affiliate_code || 'N/A',
         commission_rate: parseFloat(affiliate.commission_rate) || 0,
         total_earnings: parseFloat(affiliate.total_earnings) || 0,
         total_referrals: parseInt(affiliate.total_referrals) || 0,
-        earnings_this_month: parseFloat(affiliate.earnings_this_month) || 0
+        earnings_this_month: parseFloat(affiliate.earnings_this_month) || 0,
+        earnings_last_30_days: parseFloat(affiliate.earnings_last_30_days) || 0
       };
-
+      
       // Comissões recentes
       const commissionsResult = await pool.query(`
         SELECT 
@@ -356,129 +454,167 @@ router.get('/dashboard', authenticate, async (req, res, next) => {
           c.amount,
           c.status,
           c.created_at,
-          a.appointment_date,
-          u.name as patient_name
+          b.date as booking_date,
+          u.name as client_name
         FROM commissions c
-        LEFT JOIN appointments a ON c.appointment_id = a.id
-        LEFT JOIN users u ON a.patient_id = u.id
-        WHERE c.affiliate_id = $1
+        LEFT JOIN bookings b ON c.booking_id = b.id
+        LEFT JOIN users u ON b.client_id = u.id
+        WHERE c.affiliate_id = (SELECT id FROM affiliates WHERE user_id = $1)
         ORDER BY c.created_at DESC
         LIMIT 5
       `, [userId]);
-
+      
       dashboardData.recent_activity = commissionsResult.rows;
-
+      
+      // Dados para gráficos
+      // Evolução mensal
+      const monthlyEvolutionResult = await pool.query(`
+        SELECT 
+          DATE_TRUNC('month', c.created_at) as month,
+          SUM(c.amount) as earnings,
+          COUNT(*) as commissions
+        FROM commissions c
+        WHERE c.affiliate_id = (SELECT id FROM affiliates WHERE user_id = $1)
+          AND c.created_at >= CURRENT_DATE - INTERVAL '12 months'
+        GROUP BY DATE_TRUNC('month', c.created_at)
+        ORDER BY month
+      `, [userId]);
+      
+      dashboardData.charts.monthly_evolution = monthlyEvolutionResult.rows;
+      
     } else {
       // Usuário comum (cliente)
       const patientResult = await pool.query(`
         SELECT 
-          COUNT(a.id) as total_appointments,
-          COUNT(CASE WHEN a.status = 'agendado' THEN 1 END) as pending_appointments,
-          COUNT(CASE WHEN a.status = 'concluido' THEN 1 END) as completed_appointments,
-          COUNT(CASE WHEN a.appointment_date >= CURRENT_DATE AND a.appointment_date < CURRENT_DATE + INTERVAL '7 days' THEN 1 END) as upcoming_week
-        FROM appointments a
-        WHERE a.patient_id = $1
+          COUNT(b.id) as total_bookings,
+          COUNT(CASE WHEN b.status = 'pending' THEN 1 END) as pending_bookings,
+          COUNT(CASE WHEN b.status = 'confirmed' THEN 1 END) as confirmed_bookings,
+          COUNT(CASE WHEN b.status = 'completed' THEN 1 END) as completed_bookings,
+          COUNT(CASE WHEN b.date >= CURRENT_DATE AND b.date < CURRENT_DATE + INTERVAL '7 days' THEN 1 END) as upcoming_week,
+          COALESCE(SUM(CASE WHEN b.status = 'completed' AND b.date >= DATE_TRUNC('month', CURRENT_DATE) THEN s.price ELSE 0 END), 0) as spent_this_month
+        FROM bookings b
+        LEFT JOIN services s ON b.service_id = s.id
+        WHERE b.client_id = $1 ${periodCondition}
       `, [userId]);
-
+      
       const stats = patientResult.rows[0];
-
       dashboardData.summary = {
-        total_appointments: parseInt(stats.total_appointments) || 0,
-        pending_appointments: parseInt(stats.pending_appointments) || 0,
-        completed_appointments: parseInt(stats.completed_appointments) || 0,
-        upcoming_week: parseInt(stats.upcoming_week) || 0
+        total_bookings: parseInt(stats.total_bookings) || 0,
+        pending_bookings: parseInt(stats.pending_bookings) || 0,
+        confirmed_bookings: parseInt(stats.confirmed_bookings) || 0,
+        completed_bookings: parseInt(stats.completed_bookings) || 0,
+        upcoming_week: parseInt(stats.upcoming_week) || 0,
+        spent_this_month: parseFloat(stats.spent_this_month) || 0
       };
-
+      
       // Próximos agendamentos
       const upcomingResult = await pool.query(`
         SELECT 
-          a.id,
-          a.appointment_date,
-          a.appointment_time,
-          a.type,
-          a.status,
+          b.id,
+          b.date,
+          b.start_time,
+          b.status,
+          s.name as service_name,
           u.name as therapist_name
-        FROM appointments a
-        LEFT JOIN users u ON a.therapist_id = u.id
-        WHERE a.patient_id = $1 
-          AND a.appointment_date >= CURRENT_DATE
-          AND a.status IN ('agendado', 'confirmado')
-        ORDER BY a.appointment_date, a.appointment_time
+        FROM bookings b
+        LEFT JOIN services s ON b.service_id = s.id
+        LEFT JOIN users u ON b.therapist_id = u.id
+        WHERE b.client_id = $1 
+          AND b.date >= CURRENT_DATE
+          AND b.status IN ('pending', 'confirmed')
+        ORDER BY b.date, b.start_time
         LIMIT 5
       `, [userId]);
-
+      
       dashboardData.recent_activity = upcomingResult.rows;
+      
+      // Histórico de agendamentos
+      const historyResult = await pool.query(`
+        SELECT 
+          b.date,
+          b.status,
+          s.name as service_name,
+          u.name as therapist_name
+        FROM bookings b
+        LEFT JOIN services s ON b.service_id = s.id
+        LEFT JOIN users u ON b.therapist_id = u.id
+        WHERE b.client_id = $1 
+          AND b.status = 'completed'
+        ORDER BY b.date DESC
+        LIMIT 10
+      `, [userId]);
+      
+      dashboardData.charts.booking_history = historyResult.rows;
     }
-
-    // Notificações gerais (simuladas)
-    dashboardData.notifications = [
-      {
-        id: 1,
-        type: 'info',
-        title: 'Bem-vindo ao sistema',
-        message: 'Complete seu perfil para uma melhor experiência',
-        read: false,
-        created_at: new Date().toISOString()
-      }
-    ];
-
+    
+    // Notificações não lidas
+    const notificationsResult = await pool.query(`
+      SELECT id, type, title, message, created_at
+      FROM notifications
+      WHERE user_id = $1 AND read = false
+      ORDER BY created_at DESC
+      LIMIT 5
+    `, [userId]);
+    
+    dashboardData.notifications = notificationsResult.rows;
+    
     res.json({
       success: true,
       data: dashboardData
     });
-
   } catch (error) {
     next(error);
   }
 });
 
 // GET /api/users/notifications - Obter notificações do usuário
-router.get('/notifications', authenticate, async (req, res, next) => {
+router.get('/notifications', authenticate, [
+  query('page').optional().isInt({ min: 1 }).toInt(),
+  query('limit').optional().isInt({ min: 1, max: 50 }).toInt(),
+  query('unread_only').optional().isBoolean().toBoolean()
+], async (req, res, next) => {
   try {
     const userId = req.user.id;
     const { page = 1, limit = 20, unread_only = false } = req.query;
-
     const offset = (page - 1) * limit;
-
-    // Construir query (simulada por enquanto)
-    // Em produção, você teria uma tabela de notificações
-    const notifications = [
-      {
-        id: 1,
-        type: 'info',
-        title: 'Sistema atualizado',
-        message: 'Nova versão do sistema disponível com melhorias',
-        read: false,
-        created_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString() // 2 horas atrás
-      },
-      {
-        id: 2,
-        type: 'appointment',
-        title: 'Agendamento confirmado',
-        message: 'Seu agendamento para amanhã às 14:00 foi confirmado',
-        read: true,
-        created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString() // 1 dia atrás
-      }
-    ];
-
-    const filteredNotifications = unread_only === 'true' 
-      ? notifications.filter(n => !n.read)
-      : notifications;
-
+    
+    // Construir query
+    let whereClause = 'WHERE user_id = $1';
+    let queryParams = [userId];
+    let paramIndex = 2;
+    
+    if (unread_only) {
+      whereClause += ' AND read = false';
+    }
+    
+    const countQuery = `SELECT COUNT(*) as total FROM notifications ${whereClause}`;
+    const countResult = await pool.query(countQuery, queryParams);
+    const total = parseInt(countResult.rows[0].total);
+    
+    const notificationsQuery = `
+      SELECT id, type, title, message, data, read, created_at
+      FROM notifications ${whereClause}
+      ORDER BY created_at DESC
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `;
+    
+    queryParams.push(limit, offset);
+    
+    const notificationsResult = await pool.query(notificationsQuery, queryParams);
+    
     res.json({
       success: true,
       data: {
-        notifications: filteredNotifications.slice(offset, offset + limit),
+        notifications: notificationsResult.rows,
         pagination: {
-          current: parseInt(page),
-          total: filteredNotifications.length,
-          totalPages: Math.ceil(filteredNotifications.length / limit),
-          hasNext: (page * limit) < filteredNotifications.length,
+          current: page,
+          total,
+          totalPages: Math.ceil(total / limit),
+          hasNext: (page * limit) < total,
           hasPrev: page > 1
         }
       }
     });
-
   } catch (error) {
     next(error);
   }
@@ -495,74 +631,109 @@ router.put('/notifications/:id/read', authenticate, param('id').isInt(), async (
         errors: errors.array()
       });
     }
-
+    
     const notificationId = req.params.id;
     const userId = req.user.id;
-
-    // Em produção, você atualizaria a tabela de notificações
-    // UPDATE notifications SET read = true WHERE id = $1 AND user_id = $2
-
+    
+    // Verificar se notificação pertence ao usuário
+    const notificationCheck = await pool.query(
+      'SELECT id FROM notifications WHERE id = $1 AND user_id = $2',
+      [notificationId, userId]
+    );
+    
+    if (notificationCheck.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Notificação não encontrada'
+      });
+    }
+    
+    // Marcar como lida
+    await pool.query(
+      'UPDATE notifications SET read = true, read_at = NOW() WHERE id = $1',
+      [notificationId]
+    );
+    
     logger.info(`Notificação ${notificationId} marcada como lida pelo usuário ${userId}`);
-
+    
     res.json({
       success: true,
       message: 'Notificação marcada como lida'
     });
+  } catch (error) {
+    next(error);
+  }
+});
 
+// PUT /api/users/notifications/read-all - Marcar todas notificações como lidas
+router.put('/notifications/read-all', authenticate, async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    
+    // Marcar todas as notificações não lidas como lidas
+    const result = await pool.query(
+      'UPDATE notifications SET read = true, read_at = NOW() WHERE user_id = $1 AND read = false RETURNING *',
+      [userId]
+    );
+    
+    logger.info(`Todas as notificações marcadas como lidas pelo usuário ${userId}. Total: ${result.rowCount}`);
+    
+    res.json({
+      success: true,
+      message: `${result.rowCount} notificações marcadas como lidas`
+    });
   } catch (error) {
     next(error);
   }
 });
 
 // DELETE /api/users/account - Deletar conta do usuário
-router.delete('/account', authenticate, async (req, res, next) => {
+router.delete('/account', authenticate, accountDeletionValidation, async (req, res, next) => {
   try {
-    const userId = req.user.id;
-    const { confirmation } = req.body;
-
-    // Verificar confirmação
-    if (confirmation !== 'DELETE') {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
       return res.status(400).json({
         success: false,
-        message: 'Para deletar sua conta, envie { "confirmation": "DELETE" }'
+        message: 'Dados inválidos',
+        errors: errors.array()
       });
     }
-
+    
+    const userId = req.user.id;
+    const { confirmation, reason } = req.body;
+    
     await transaction(async (client) => {
       // Deletar dados relacionados
       await client.query('DELETE FROM sessions WHERE user_id = $1', [userId]);
-      await client.query('DELETE FROM appointments WHERE patient_id = $1 OR therapist_id = $1', [userId]);
+      await client.query('DELETE FROM notifications WHERE user_id = $1', [userId]);
+      await client.query('DELETE FROM bookings WHERE client_id = $1 OR therapist_id = $1', [userId]);
       await client.query('DELETE FROM profiles WHERE user_id = $1', [userId]);
       await client.query('DELETE FROM affiliates WHERE user_id = $1', [userId]);
       
       // Deletar usuário
       await client.query('DELETE FROM users WHERE id = $1', [userId]);
     });
-
-    logger.info(`Conta deletada: ${req.user.email}`);
-
+    
+    logger.info(`Conta deletada: ${req.user.email}, motivo: ${reason || 'Não informado'}`);
+    
     res.json({
       success: true,
       message: 'Conta deletada com sucesso'
     });
-
   } catch (error) {
     next(error);
   }
 });
 
 // GET /api/users/search - Buscar usuários (apenas para terapeutas/admins)
-router.get('/search', authenticate, authorize(['terapeuta', 'admin']), async (req, res, next) => {
+router.get('/search', authenticate, authorize(['terapeuta', 'admin']), [
+  query('q').isLength({ min: 2 }).withMessage('Query deve ter pelo menos 2 caracteres'),
+  query('role').optional().isIn(['client', 'therapist', 'affiliate', 'admin']),
+  query('limit').optional().isInt({ min: 1, max: 50 }).toInt()
+], async (req, res, next) => {
   try {
     const { q, role, limit = 10 } = req.query;
-
-    if (!q || q.length < 2) {
-      return res.status(400).json({
-        success: false,
-        message: 'Query deve ter pelo menos 2 caracteres'
-      });
-    }
-
+    
     let query = `
       SELECT 
         u.id,
@@ -578,23 +749,28 @@ router.get('/search', authenticate, authorize(['terapeuta', 'admin']), async (re
     
     let params = [`%${q}%`];
     let paramIndex = 2;
-
+    
     if (role) {
       query += ` AND u.role = $${paramIndex}`;
       params.push(role);
       paramIndex++;
     }
-
+    
+    // Restringir busca por role
+    if (req.user.role === 'therapist') {
+      // Terapeutas só podem buscar clientes
+      query += ` AND u.role = 'client'`;
+    }
+    
     query += ` ORDER BY u.name LIMIT $${paramIndex}`;
     params.push(limit);
-
+    
     const result = await pool.query(query, params);
-
+    
     res.json({
       success: true,
       data: result.rows
     });
-
   } catch (error) {
     next(error);
   }
@@ -611,9 +787,9 @@ router.get('/:id', param('id').isInt(), async (req, res, next) => {
         errors: errors.array()
       });
     }
-
+    
     const { id } = req.params;
-
+    
     // Buscar apenas dados públicos
     const userResult = await pool.query(`
       SELECT 
@@ -629,19 +805,18 @@ router.get('/:id', param('id').isInt(), async (req, res, next) => {
       LEFT JOIN profiles p ON u.id = p.user_id
       WHERE u.id = $1 AND u.status = 'ativo'
     `, [id]);
-
+    
     if (userResult.rows.length === 0) {
       return res.status(404).json({
         success: false,
         message: 'Usuário não encontrado'
       });
     }
-
+    
     res.json({
       success: true,
       data: userResult.rows[0]
     });
-
   } catch (error) {
     next(error);
   }

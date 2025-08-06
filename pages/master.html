@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel Master - Lunara</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/responsive.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .dashboard-master {
+            background: linear-gradient(135deg, #1a5490 0%, #0d2d4a 100%);
+            color: white;
+            padding: 6rem 0 4rem;
+        }
+        .dashboard-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 3rem;
+        }
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        .user-avatar {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #1a5490;
+            font-size: 1.5rem;
+            font-weight: bold;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 2rem;
+            margin-bottom: 3rem;
+        }
+        .stat-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 2rem;
+            text-align: center;
+            transition: transform 0.3s;
+        }
+        .stat-card:hover {
+            transform: translateY(-10px);
+        }
+        .stat-card i {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            color: #ffd700;
+        }
+        .stat-card h3 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+        }
+        .management-section {
+            background: white;
+            color: #333;
+            border-radius: 15px;
+            padding: 2rem;
+            margin-top: 3rem;
+        }
+        .tabs {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            border-bottom: 1px solid #eee;
+        }
+        .tab-btn {
+            background: none;
+            border: none;
+            padding: 1rem 2rem;
+            cursor: pointer;
+            font-size: 1rem;
+            color: #666;
+            position: relative;
+        }
+        .tab-btn.active {
+            color: #1a5490;
+            font-weight: bold;
+        }
+        .tab-btn.active::after {
+            content: '';
+            position: absolute;
+            bottom: -1px;
+            left: 0;
+            width: 100%;
+            height: 3px;
+            background: #1a5490;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .user-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+        .user-table th,
+        .user-table td {
+            padding: 1rem;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+        .user-table th {
+            background: #f8f9fa;
+            color: #1a5490;
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 0.3rem 0.8rem;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: bold;
+        }
+        .status-active {
+            background: #d4edda;
+            color: #155724;
+        }
+        .status-inactive {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .status-pending {
+            background: #fff3cd;
+            color: #856404;
+        }
+        .action-buttons {
+            display: flex;
+            gap: 0.5rem;
+        }
+        .btn-icon {
+            background: none;
+            border: none;
+            color: #666;
+            cursor: pointer;
+            padding: 0.5rem;
+            border-radius: 5px;
+            transition: all 0.3s;
+        }
+        .btn-icon:hover {
+            background: #f0f0f0;
+            color: #1a5490;
+        }
+        .reports-section {
+            background: white;
+            color: #333;
+            border-radius: 15px;
+            padding: 2rem;
+            margin-top: 3rem;
+        }
+        .reports-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin-top: 2rem;
+        }
+        .report-card {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 2rem;
+            transition: all 0.3s;
+        }
+        .report-card:hover {
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            transform: translateY(-5px);
+        }
+        .report-card h3 {
+            margin-bottom: 1rem;
+            color: #1a5490;
+        }
+        .report-card p {
+            margin-bottom: 1.5rem;
+            color: #666;
+        }
+        .btn-report {
+            background: #1a5490;
+            color: white;
+            border: none;
+            padding: 0.8rem 1.5rem;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .btn-report:hover {
+            background: #164070;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <div class="logo">
+                <a href="master.html">
+                    <img src="imagens/logo.webp" alt="Logo Lunara Master">
+                </a>
+            </div>
+            <nav>
+                <ul class="nav-links">
+                    <li><a href="master.html" class="active">Painel</a></li>
+                    <li><a href="#usuarios">Usuários</a></li>
+                    <li><a href="#relatorios">Relatórios</a></li>
+                    <li><a href="#configuracoes">Configurações</a></li>
+                    <li><a href="index.html">Sair</a></li>
+                </ul>
+                <div class="hamburger">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
+            </nav>
+        </div>
+    </header>
+
+    <section class="dashboard-master">
+        <div class="container">
+            <div class="dashboard-header">
+                <div>
+                    <h1>Painel Master</h1>
+                    <p>Gerenciamento completo do sistema</p>
+                </div>
+                <div class="user-info">
+                    <div class="user-avatar">AM</div>
+                    <div>
+                        <h3>Admin Master</h3>
+                        <p>Administrador do Sistema</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <i class="fas fa-users"></i>
+                    <h3>1,250</h3>
+                    <p>Total Usuários</p>
+                </div>
+                <div class="stat-card">
+                    <i class="fas fa-user-md"></i>
+                    <h3>45</h3>
+                    <p>Terapeutas</p>
+                </div>
+                <div class="stat-card">
+                    <i class="fas fa-handshake"></i>
+                    <h3>320</h3>
+                    <p>Afiliados</p>
+                </div>
+                <div class="stat-card">
+                    <i class="fas fa-chart-line"></i>
+                    <h3>R$ 125K</h3>
+                    <p>Faturamento</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="management-section container">
+        <h2>Gerenciamento de Usuários</h2>
+        <div class="tabs">
+            <button class="tab-btn active" data-tab="terapeutas">Terapeutas</button>
+            <button class="tab-btn" data-tab="afiliados">Afiliados</button>
+            <button class="tab-btn" data-tab="pacientes">Pacientes</button>
+        </div>
+
+        <div class="tab-content active" id="terapeutas">
+            <table class="user-table">
+                <thead>
+                    <tr>
+                        <th>Nome</th>
+                        <th>E-mail</th>
+                        <th>Especialidade</th>
+                        <th>Status</th>
+                        <th>Ações</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Dra. Sofia Mendes</td>
+                        <td>sofia@lunara.com</td>
+                        <td>Psicologia Clínica</td>
+                        <td><span class="status-badge status-active">Ativo</span></td>
+                        <td>
+                            <div class="action-buttons">
+                                <button class="btn-icon"><i class="fas fa-edit"></i></button>
+                                <button class="btn-icon"><i class="fas fa-trash"></i></button>
+                                <button class="btn-icon"><i class="fas fa-eye"></i></button>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>Dr. Carlos Alberto</td>
+                        <td>carlos@lunara.com</td>
+                        <td>Psiquiatria</td>
+                        <td><span class="status-badge status-active">Ativo</span></td>
+                        <td>
+                            <div class="action-buttons">
+                                <button class="btn-icon"><i class="fas fa-edit"></i></button>
+                                <button class="btn-icon"><i class="fas fa-trash"></i></button>
+                                <button class="btn-icon"><i class="fas fa-eye"></i></button>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>Dra. Mariana Santos</td>
+                        <td>mariana@lunara.com</td>
+                        <td>Terapia Familiar</td>
+                        <td><span class="status-badge status-pending">Pendente</span></td>
+                        <td>
+                            <div class="action-buttons">
+                                <button class="btn-icon"><i class="fas fa-edit"></i></button>
+                                <button class="btn-icon"><i class="fas fa-trash"></i></button>
+                                <button class="btn-icon"><i class="fas fa-eye"></i></button>
+                            </div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="tab-content" id="afiliados">
+            <table class="user-table">
+                <thead>
+                    <tr>
+                        <th>Nome</th>
+                        <th>E-mail</th>
+                        <th>Comissões</th>
+                        <th>Status</th>
+                        <th>Ações</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>João Silva</td>
+                        <td>joao@exemplo.com</td>
+                        <td>R$ 2.450</td>
+                        <td><span class="status-badge status-active">Ativo</span></td>
+                        <td>
+                            <div class="action-buttons">
+                                <button class="btn-icon"><i class="fas fa-edit"></i></button>
+                                <button class="btn-icon"><i class="fas fa-trash"></i></button>
+                                <button class="btn-icon"><i class="fas fa-eye"></i></button>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>Maria Oliveira</td>
+                        <td>maria@exemplo.com</td>
+                        <td>R$ 1.890</td>
+                        <td><span class="status-badge status-active">Ativo</span></td>
+                        <td>
+                            <div class="action-buttons">
+                                <button class="btn-icon"><i class="fas fa-edit"></i></button>
+                                <button class="btn-icon"><i class="fas fa-trash"></i></button>
+                                <button class="btn-icon"><i class="fas fa-eye"></i></button>
+                            </div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="tab-content" id="pacientes">
+            <table class="user-table">
+                <thead>
+                    <tr>
+                        <th>Nome</th>
+                        <th>E-mail</th>
+                        <th>Terapeuta</th>
+                        <th>Status</th>
+                        <th>Ações</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Carlos Alberto</td>
+                        <td>carlos.paciente@exemplo.com</td>
+                        <td>Dra. Sofia Mendes</td>
+                        <td><span class="status-badge status-active">Ativo</span></td>
+                        <td>
+                            <div class="action-buttons">
+                                <button class="btn-icon"><i class="fas fa-edit"></i></button>
+                                <button class="btn-icon"><i class="fas fa-trash"></i></button>
+                                <button class="btn-icon"><i class="fas fa-eye"></i></button>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>Mariana Santos</td>
+                        <td>mariana.paciente@exemplo.com</td>
+                        <td>Dr. Carlos Alberto</td>
+                        <td><span class="status-badge status-active">Ativo</span></td>
+                        <td>
+                            <div class="action-buttons">
+                                <button class="btn-icon"><i class="fas fa-edit"></i></button>
+                                <button class="btn-icon"><i class="fas fa-trash"></i></button>
+                                <button class="btn-icon"><i class="fas fa-eye"></i></button>
+                            </div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="reports-section container">
+        <h2>Relatórios do Sistema</h2>
+        <div class="reports-grid">
+            <div class="report-card">
+                <h3>Relatório de Vendas</h3>
+                <p>Visualize o desempenho de vendas do último mês com detalhamento por produto e afiliado.</p>
+                <button class="btn-report">
+                    <i class="fas fa-download"></i> Baixar Relatório
+                </button>
+            </div>
+            <div class="report-card">
+                <h3>Relatório de Usuários</h3>
+                <p>Análise completa do crescimento da base de usuários e taxa de retenção.</p>
+                <button class="btn-report">
+                    <i class="fas fa-download"></i> Baixar Relatório
+                </button>
+            </div>
+            <div class="report-card">
+                <h3>Relatório Financeiro</h3>
+                <p>Resumo financeiro com receitas, despesas e lucro líquido do período.</p>
+                <button class="btn-report">
+                    <i class="fas fa-download"></i> Baixar Relatório
+                </button>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2023 Lunara Master. Todos os direitos reservados.</p>
+        </div>
+    </footer>
+
+    <script src="js/script.js"></script>
+    <script>
+        // Script para as abas de gerenciamento
+        document.addEventListener('DOMContentLoaded', function() {
+            const tabBtns = document.querySelectorAll('.tab-btn');
+            const tabContents = document.querySelectorAll('.tab-content');
+
+            tabBtns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    // Remove a classe active de todos os botões e conteúdos
+                    tabBtns.forEach(b => b.classList.remove('active'));
+                    tabContents.forEach(c => c.classList.remove('active'));
+
+                    // Adiciona a classe active ao botão clicado
+                    btn.classList.add('active');
+
+                    // Mostra o conteúdo correspondente
+                    const tabId = btn.getAttribute('data-tab');
+                    document.getElementById(tabId).classList.add('active');
+                });
+            });
+        });
+    </script>
+</body>
+</html>

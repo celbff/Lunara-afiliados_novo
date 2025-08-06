@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel do Afiliado - Lunara</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/responsive.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .dashboard-afiliado {
+            background: linear-gradient(135deg, #1a5490 0%, #2a7bc4 100%);
+            color: white;
+            padding: 6rem 0 4rem;
+        }
+        .dashboard-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 3rem;
+        }
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        .user-avatar {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #1a5490;
+            font-size: 1.5rem;
+            font-weight: bold;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 2rem;
+            margin-bottom: 3rem;
+        }
+        .stat-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 2rem;
+            text-align: center;
+            transition: transform 0.3s;
+        }
+        .stat-card:hover {
+            transform: translateY(-10px);
+        }
+        .stat-card i {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            color: #ffd700;
+        }
+        .stat-card h3 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+        }
+        .actions {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        .btn-afiliado {
+            background: white;
+            color: #1a5490;
+            padding: 1rem 2rem;
+            border-radius: 50px;
+            text-decoration: none;
+            font-weight: bold;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .btn-afiliado:hover {
+            background: #f0f0f0;
+            transform: scale(1.05);
+        }
+        .recent-comissions {
+            background: white;
+            color: #333;
+            border-radius: 15px;
+            padding: 2rem;
+            margin-top: 3rem;
+        }
+        .comission-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+        .comission-table th,
+        .comission-table td {
+            padding: 1rem;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+        .comission-table th {
+            background: #f8f9fa;
+            color: #1a5490;
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 0.3rem 0.8rem;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: bold;
+        }
+        .status-paid {
+            background: #d4edda;
+            color: #155724;
+        }
+        .status-pending {
+            background: #fff3cd;
+            color: #856404;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <div class="logo">
+                <a href="afiliado.html">
+                    <img src="imagens/logo.webp" alt="Logo Lunara Afiliados">
+                </a>
+            </div>
+            <nav>
+                <ul class="nav-links">
+                    <li><a href="afiliado.html" class="active">Painel</a></li>
+                    <li><a href="#relatorios">Relatórios</a></li>
+                    <li><a href="#materiais">Materiais</a></li>
+                    <li><a href="#configuracoes">Configurações</a></li>
+                    <li><a href="index.html">Sair</a></li>
+                </ul>
+                <div class="hamburger">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
+            </nav>
+        </div>
+    </header>
+
+    <section class="dashboard-afiliado">
+        <div class="container">
+            <div class="dashboard-header">
+                <div>
+                    <h1>Painel do Afiliado</h1>
+                    <p>Gerencie suas comissões e acompanhe seu desempenho</p>
+                </div>
+                <div class="user-info">
+                    <div class="user-avatar">JS</div>
+                    <div>
+                        <h3>João Silva</h3>
+                        <p>Afiliado desde: Jan/2023</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <i class="fas fa-dollar-sign"></i>
+                    <h3>R$ 2.450</h3>
+                    <p>Total de Comissões</p>
+                </div>
+                <div class="stat-card">
+                    <i class="fas fa-shopping-cart"></i>
+                    <h3>48</h3>
+                    <p>Vendas Realizadas</p>
+                </div>
+                <div class="stat-card">
+                    <i class="fas fa-users"></i>
+                    <h3>1.250</h3>
+                    <p>Visitantes Únicos</p>
+                </div>
+                <div class="stat-card">
+                    <i class="fas fa-chart-line"></i>
+                    <h3>3.8%</h3>
+                    <p>Taxa de Conversão</p>
+                </div>
+            </div>
+
+            <div class="actions">
+                <a href="#" class="btn-afiliado">
+                    <i class="fas fa-link"></i> Meu Link de Afiliado
+                </a>
+                <a href="#" class="btn-afiliado">
+                    <i class="fas fa-share-alt"></i> Compartilhar
+                </a>
+                <a href="#" class="btn-afiliado">
+                    <i class="fas fa-download"></i> Baixar Relatório
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <section class="recent-comissions container">
+        <h2>Comissões Recentes</h2>
+        <table class="comission-table">
+            <thead>
+                <tr>
+                    <th>Data</th>
+                    <th>Produto</th>
+                    <th>Valor</th>
+                    <th>Comissão</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>23/10/2023</td>
+                    <td>Kit Terapia Completo</td>
+                    <td>R$ 297,00</td>
+                    <td>R$ 89,10</td>
+                    <td><span class="status-badge status-paid">Pago</span></td>
+                </tr>
+                <tr>
+                    <td>22/10/2023</td>
+                    <td>Curso de Meditação</td>
+                    <td>R$ 97,00</td>
+                    <td>R$ 29,10</td>
+                    <td><span class="status-badge status-paid">Pago</span></td>
+                </tr>
+                <tr>
+                    <td>21/10/2023</td>
+                    <td>Consultoria Online</td>
+                    <td>R$ 150,00</td>
+                    <td>R$ 45,00</td>
+                    <td><span class="status-badge status-pending">Pendente</span></td>
+                </tr>
+            </tbody>
+        </table>
+    </section>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2023 Lunara Afiliados. Todos os direitos reservados.</p>
+        </div>
+    </footer>
+
+    <script src="js/script.js"></script>
+</body>
+</html>

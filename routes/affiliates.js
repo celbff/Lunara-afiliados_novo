@@ -1,19 +1,15 @@
 // routes/affiliates.js
 // Rotas para afiliados - Lunara Afiliados
-
 const express = require('express');
 const { body, param, query, validationResult } = require('express-validator');
-
 const { pool, transaction } = require('../config/database');
 const { authenticate, authorize } = require('../middleware/auth');
 const logger = require('../utils/logger');
-
 const router = express.Router();
 
 // =============================================
 // VALIDAÇÕES
 // =============================================
-
 const affiliateRegistrationValidation = [
   body('name')
     .notEmpty()
@@ -24,6 +20,7 @@ const affiliateRegistrationValidation = [
     .normalizeEmail()
     .withMessage('Email deve ser válido'),
   body('phone')
+    .optional()
     .matches(/^\(\d{2}\)\s\d{4,5}-\d{4}$/)
     .withMessage('Telefone deve estar no formato (XX) XXXXX-XXXX'),
   body('commission_rate')
@@ -55,10 +52,29 @@ const profileUpdateValidation = [
     .withMessage('Materiais de marketing devem ser uma lista')
 ];
 
+const commissionRateUpdateValidation = [
+  body('commission_rate')
+    .isFloat({ min: 1, max: 30 })
+    .withMessage('Taxa de comissão deve estar entre 1% e 30%')
+];
+
+const statusUpdateValidation = [
+  body('status')
+    .isIn(['ativo', 'inativo', 'suspenso'])
+    .withMessage('Status deve ser: ativo, inativo ou suspenso')
+];
+
+// =============================================
+// FUNÇÕES AUXILIARES
+// =============================================
+// Gerar link de afiliado
+const generateAffiliateLink = (affiliateCode) => {
+  return `${process.env.FRONTEND_URL}/?ref=${affiliateCode}`;
+};
+
 // =============================================
 // ROTAS PÚBLICAS
 // =============================================
-
 // POST /api/affiliates/register - Registro de novo afiliado
 router.post('/register', affiliateRegistrationValidation, async (req, res, next) => {
   try {
@@ -70,22 +86,18 @@ router.post('/register', affiliateRegistrationValidation, async (req, res, next)
         errors: errors.array()
       });
     }
-
     const { name, email, phone, commission_rate = 10 } = req.body;
-
     // Verificar se email já existe
     const existingUser = await pool.query(
       'SELECT id FROM users WHERE email = $1',
       [email]
     );
-
     if (existingUser.rows.length > 0) {
       return res.status(409).json({
         success: false,
         message: 'Este email já está cadastrado'
       });
     }
-
     const result = await transaction(async (client) => {
       // Criar usuário
       const userResult = await client.query(`
@@ -93,14 +105,11 @@ router.post('/register', affiliateRegistrationValidation, async (req, res, next)
         VALUES ($1, $2, $3, 'afiliado', 'pendente', 'TEMP_HASH')
         RETURNING id, name, email, phone, role, status, created_at
       `, [name, email, phone]);
-
       const user = userResult.rows[0];
-
       // Gerar código de afiliado único
       let affiliateCode;
       let isUnique = false;
       let attempts = 0;
-
       while (!isUnique && attempts < 10) {
         affiliateCode = `LUN${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
         
@@ -108,17 +117,14 @@ router.post('/register', affiliateRegistrationValidation, async (req, res, next)
           'SELECT id FROM affiliates WHERE affiliate_code = $1',
           [affiliateCode]
         );
-
         if (existingCode.rows.length === 0) {
           isUnique = true;
         }
         attempts++;
       }
-
       if (!isUnique) {
         throw new Error('Erro ao gerar código de afiliado único');
       }
-
       // Criar registro de afiliado
       const affiliateResult = await client.query(`
         INSERT INTO affiliates (
@@ -127,28 +133,24 @@ router.post('/register', affiliateRegistrationValidation, async (req, res, next)
           commission_rate, 
           status,
           total_earnings,
-          total_referrals
+          total_referrals,
+          affiliate_link
         )
-        VALUES ($1, $2, $3, 'ativo', 0, 0)
+        VALUES ($1, $2, $3, 'ativo', 0, 0, $4)
         RETURNING *
-      `, [user.id, affiliateCode, commission_rate]);
-
+      `, [user.id, affiliateCode, commission_rate, generateAffiliateLink(affiliateCode)]);
       const affiliate = affiliateResult.rows[0];
-
       // Criar perfil básico
       await client.query(`
         INSERT INTO profiles (user_id, bio)
         VALUES ($1, 'Afiliado Lunara')
       `, [user.id]);
-
       return {
         user,
         affiliate
       };
     });
-
     logger.info(`Novo afiliado registrado: ${email} - Código: ${result.affiliate.affiliate_code}`);
-
     res.status(201).json({
       success: true,
       message: 'Afiliado registrado com sucesso! Verifique seu email para ativar a conta.',
@@ -157,11 +159,11 @@ router.post('/register', affiliateRegistrationValidation, async (req, res, next)
         name: result.user.name,
         email: result.user.email,
         affiliate_code: result.affiliate.affiliate_code,
+        affiliate_link: result.affiliate.affiliate_link,
         commission_rate: result.affiliate.commission_rate,
         status: result.user.status
       }
     });
-
   } catch (error) {
     next(error);
   }
@@ -170,7 +172,6 @@ router.post('/register', affiliateRegistrationValidation, async (req, res, next)
 // =============================================
 // ROTAS AUTENTICADAS
 // =============================================
-
 // GET /api/affiliates - Listar afiliados (admin apenas)
 router.get('/', authenticate, authorize(['admin']), async (req, res, next) => {
   try {
@@ -182,9 +183,7 @@ router.get('/', authenticate, authorize(['admin']), async (req, res, next) => {
       sort = 'created_at',
       order = 'desc'
     } = req.query;
-
     const offset = (page - 1) * limit;
-
     // Construir query
     let baseQuery = `
       SELECT 
@@ -198,22 +197,20 @@ router.get('/', authenticate, authorize(['admin']), async (req, res, next) => {
         a.commission_rate,
         a.total_earnings,
         a.total_referrals,
-        a.status as affiliate_status
+        a.status as affiliate_status,
+        a.affiliate_link
       FROM users u
       INNER JOIN affiliates a ON u.id = a.user_id
       WHERE u.role = 'afiliado'
     `;
-
     let countQuery = `
       SELECT COUNT(*) as total
       FROM users u
       INNER JOIN affiliates a ON u.id = a.user_id
       WHERE u.role = 'afiliado'
     `;
-
     let queryParams = [];
     let paramIndex = 1;
-
     // Filtros
     if (search) {
       const searchCondition = ` AND (u.name ILIKE $${paramIndex} OR u.email ILIKE $${paramIndex} OR a.affiliate_code ILIKE $${paramIndex})`;
@@ -222,7 +219,6 @@ router.get('/', authenticate, authorize(['admin']), async (req, res, next) => {
       queryParams.push(`%${search}%`);
       paramIndex++;
     }
-
     if (status) {
       const statusCondition = ` AND u.status = $${paramIndex}`;
       baseQuery += statusCondition;
@@ -230,7 +226,6 @@ router.get('/', authenticate, authorize(['admin']), async (req, res, next) => {
       queryParams.push(status);
       paramIndex++;
     }
-
     // Ordenação
     const validSortFields = {
       name: 'u.name',
@@ -240,25 +235,20 @@ router.get('/', authenticate, authorize(['admin']), async (req, res, next) => {
       total_referrals: 'a.total_referrals',
       commission_rate: 'a.commission_rate'
     };
-
     const sortField = validSortFields[sort] || 'u.created_at';
     const sortOrder = order.toLowerCase() === 'desc' ? 'DESC' : 'ASC';
-
     baseQuery += ` ORDER BY ${sortField} ${sortOrder}`;
     baseQuery += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
     
     const finalParams = [...queryParams, limit, offset];
-
     // Executar queries
     const [affiliatesResult, countResult] = await Promise.all([
       pool.query(baseQuery, finalParams),
       pool.query(countQuery, queryParams)
     ]);
-
     const affiliates = affiliatesResult.rows;
     const total = parseInt(countResult.rows[0].total);
     const totalPages = Math.ceil(total / limit);
-
     res.json({
       success: true,
       data: {
@@ -272,7 +262,6 @@ router.get('/', authenticate, authorize(['admin']), async (req, res, next) => {
         }
       }
     });
-
   } catch (error) {
     next(error);
   }
@@ -289,9 +278,7 @@ router.get('/:id', authenticate, param('id').isInt(), async (req, res, next) => 
         errors: errors.array()
       });
     }
-
     const { id } = req.params;
-
     // Verificar permissão (próprio afiliado ou admin)
     if (req.user.role !== 'admin' && req.user.id != id) {
       return res.status(403).json({
@@ -299,7 +286,6 @@ router.get('/:id', authenticate, param('id').isInt(), async (req, res, next) => 
         message: 'Acesso negado'
       });
     }
-
     // Buscar afiliado
     const affiliateResult = await pool.query(`
       SELECT 
@@ -319,22 +305,20 @@ router.get('/:id', authenticate, param('id').isInt(), async (req, res, next) => 
         a.pix_key,
         a.bank_account,
         a.marketing_materials,
+        a.affiliate_link,
         p.bio
       FROM users u
       INNER JOIN affiliates a ON u.id = a.user_id
       LEFT JOIN profiles p ON u.id = p.user_id
       WHERE u.id = $1 AND u.role = 'afiliado'
     `, [id]);
-
     if (affiliateResult.rows.length === 0) {
       return res.status(404).json({
         success: false,
         message: 'Afiliado não encontrado'
       });
     }
-
     const affiliate = affiliateResult.rows[0];
-
     // Buscar estatísticas recentes
     const statsResult = await pool.query(`
       SELECT 
@@ -347,9 +331,7 @@ router.get('/:id', authenticate, param('id').isInt(), async (req, res, next) => 
       FROM commissions c
       WHERE c.affiliate_id = $1
     `, [id]);
-
     const stats = statsResult.rows[0];
-
     res.json({
       success: true,
       data: {
@@ -364,7 +346,6 @@ router.get('/:id', authenticate, param('id').isInt(), async (req, res, next) => 
         }
       }
     });
-
   } catch (error) {
     next(error);
   }
@@ -381,16 +362,13 @@ router.put('/profile', authenticate, authorize(['afiliado']), profileUpdateValid
         errors: errors.array()
       });
     }
-
     const userId = req.user.id;
     const updateData = req.body;
-
     const result = await transaction(async (client) => {
       // Atualizar dados do usuário se necessário
       const userFields = [];
       const userValues = [];
       let userParamIndex = 1;
-
       const allowedUserFields = ['name', 'phone'];
       
       Object.keys(updateData).forEach(key => {
@@ -400,7 +378,6 @@ router.put('/profile', authenticate, authorize(['afiliado']), profileUpdateValid
           userParamIndex++;
         }
       });
-
       if (userFields.length > 0) {
         userFields.push(`updated_at = NOW()`);
         
@@ -410,15 +387,12 @@ router.put('/profile', authenticate, authorize(['afiliado']), profileUpdateValid
           WHERE id = $${userParamIndex}
         `;
         userValues.push(userId);
-
         await client.query(userUpdateQuery, userValues);
       }
-
       // Atualizar dados do afiliado
       const affiliateFields = [];
       const affiliateValues = [];
       let affiliateParamIndex = 1;
-
       const allowedAffiliateFields = ['pix_key', 'bank_account', 'marketing_materials'];
       
       Object.keys(updateData).forEach(key => {
@@ -433,7 +407,6 @@ router.put('/profile', authenticate, authorize(['afiliado']), profileUpdateValid
           affiliateParamIndex++;
         }
       });
-
       if (affiliateFields.length > 0) {
         const affiliateUpdateQuery = `
           UPDATE affiliates 
@@ -441,10 +414,8 @@ router.put('/profile', authenticate, authorize(['afiliado']), profileUpdateValid
           WHERE user_id = $${affiliateParamIndex}
         `;
         affiliateValues.push(userId);
-
         await client.query(affiliateUpdateQuery, affiliateValues);
       }
-
       // Buscar dados atualizados
       const updatedResult = await client.query(`
         SELECT 
@@ -457,23 +428,115 @@ router.put('/profile', authenticate, authorize(['afiliado']), profileUpdateValid
           a.commission_rate,
           a.pix_key,
           a.bank_account,
-          a.marketing_materials
+          a.marketing_materials,
+          a.affiliate_link
         FROM users u
         INNER JOIN affiliates a ON u.id = a.user_id
         WHERE u.id = $1
       `, [userId]);
-
       return updatedResult.rows[0];
     });
-
     logger.info(`Perfil de afiliado atualizado: ${req.user.email}`);
-
     res.json({
       success: true,
       message: 'Perfil atualizado com sucesso',
       data: result
     });
+  } catch (error) {
+    next(error);
+  }
+});
 
+// PATCH /api/affiliates/:id/commission-rate - Atualizar taxa de comissão (admin apenas)
+router.patch('/:id/commission-rate', authenticate, authorize(['admin']), param('id').isInt(), commissionRateUpdateValidation, async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Dados inválidos',
+        errors: errors.array()
+      });
+    }
+    const { id } = req.params;
+    const { commission_rate } = req.body;
+    
+    // Verificar se afiliado existe
+    const affiliateExists = await pool.query(
+      'SELECT id FROM affiliates WHERE user_id = $1',
+      [id]
+    );
+    
+    if (affiliateExists.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Afiliado não encontrado'
+      });
+    }
+    
+    // Atualizar taxa de comissão
+    await pool.query(
+      'UPDATE affiliates SET commission_rate = $1, updated_at = NOW() WHERE user_id = $2',
+      [commission_rate, id]
+    );
+    
+    logger.info(`Taxa de comissão atualizada para afiliado ${id}: ${commission_rate}%`);
+    res.json({
+      success: true,
+      message: 'Taxa de comissão atualizada com sucesso',
+      data: { commission_rate }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// PATCH /api/affiliates/:id/status - Atualizar status do afiliado (admin apenas)
+router.patch('/:id/status', authenticate, authorize(['admin']), param('id').isInt(), statusUpdateValidation, async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Dados inválidos',
+        errors: errors.array()
+      });
+    }
+    const { id } = req.params;
+    const { status } = req.body;
+    
+    // Verificar se afiliado existe
+    const affiliateExists = await pool.query(
+      'SELECT id FROM affiliates WHERE user_id = $1',
+      [id]
+    );
+    
+    if (affiliateExists.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Afiliado não encontrado'
+      });
+    }
+    
+    // Atualizar status
+    await transaction(async (client) => {
+      await client.query(
+        'UPDATE users SET status = $1, updated_at = NOW() WHERE id = $2',
+        [status, id]
+      );
+      
+      await client.query(
+        'UPDATE affiliates SET status = $1, updated_at = NOW() WHERE user_id = $2',
+        [status, id]
+      );
+    });
+    
+    logger.info(`Status do afiliado ${id} atualizado para: ${status}`);
+    res.json({
+      success: true,
+      message: 'Status do afiliado atualizado com sucesso',
+      data: { status }
+    });
   } catch (error) {
     next(error);
   }
@@ -490,7 +553,6 @@ router.get('/:id/commissions', authenticate, param('id').isInt(), async (req, re
         errors: errors.array()
       });
     }
-
     const { id } = req.params;
     const {
       page = 1,
@@ -501,7 +563,6 @@ router.get('/:id/commissions', authenticate, param('id').isInt(), async (req, re
       sort = 'created_at',
       order = 'desc'
     } = req.query;
-
     // Verificar permissão
     if (req.user.role !== 'admin' && req.user.id != id) {
       return res.status(403).json({
@@ -509,35 +570,32 @@ router.get('/:id/commissions', authenticate, param('id').isInt(), async (req, re
         message: 'Acesso negado'
       });
     }
-
     const offset = (page - 1) * limit;
-
     // Construir query
     let baseQuery = `
       SELECT 
         c.*,
-        a.appointment_date,
-        a.appointment_time,
-        a.type as appointment_type,
-        a.price as appointment_price,
-        u_patient.name as patient_name,
+        b.date as booking_date,
+        b.start_time as booking_time,
+        b.status as booking_status,
+        s.name as service_name,
+        s.price as service_price,
+        u_client.name as client_name,
         u_therapist.name as therapist_name
       FROM commissions c
-      LEFT JOIN appointments a ON c.appointment_id = a.id
-      LEFT JOIN users u_patient ON a.patient_id = u_patient.id
-      LEFT JOIN users u_therapist ON a.therapist_id = u_therapist.id
+      LEFT JOIN bookings b ON c.booking_id = b.id
+      LEFT JOIN services s ON b.service_id = s.id
+      LEFT JOIN users u_client ON b.client_id = u_client.id
+      LEFT JOIN users u_therapist ON b.therapist_id = u_therapist.id
       WHERE c.affiliate_id = $1
     `;
-
     let countQuery = `
       SELECT COUNT(*) as total
       FROM commissions c
       WHERE c.affiliate_id = $1
     `;
-
     let queryParams = [id];
     let paramIndex = 2;
-
     // Filtros
     if (status) {
       const statusCondition = ` AND c.status = $${paramIndex}`;
@@ -546,7 +604,6 @@ router.get('/:id/commissions', authenticate, param('id').isInt(), async (req, re
       queryParams.push(status);
       paramIndex++;
     }
-
     if (date_from) {
       const dateFromCondition = ` AND c.created_at >= $${paramIndex}`;
       baseQuery += dateFromCondition;
@@ -554,7 +611,6 @@ router.get('/:id/commissions', authenticate, param('id').isInt(), async (req, re
       queryParams.push(date_from);
       paramIndex++;
     }
-
     if (date_to) {
       const dateToCondition = ` AND c.created_at <= $${paramIndex}`;
       baseQuery += dateToCondition;
@@ -562,33 +618,27 @@ router.get('/:id/commissions', authenticate, param('id').isInt(), async (req, re
       queryParams.push(date_to);
       paramIndex++;
     }
-
     // Ordenação
     const validSortFields = {
       created_at: 'c.created_at',
       amount: 'c.amount',
       status: 'c.status',
-      appointment_date: 'a.appointment_date'
+      booking_date: 'b.date'
     };
-
     const sortField = validSortFields[sort] || 'c.created_at';
     const sortOrder = order.toLowerCase() === 'desc' ? 'DESC' : 'ASC';
-
     baseQuery += ` ORDER BY ${sortField} ${sortOrder}`;
     baseQuery += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
     
     const finalParams = [...queryParams, limit, offset];
-
     // Executar queries
     const [commissionsResult, countResult] = await Promise.all([
       pool.query(baseQuery, finalParams),
       pool.query(countQuery, queryParams)
     ]);
-
     const commissions = commissionsResult.rows;
     const total = parseInt(countResult.rows[0].total);
     const totalPages = Math.ceil(total / limit);
-
     res.json({
       success: true,
       data: {
@@ -602,7 +652,6 @@ router.get('/:id/commissions', authenticate, param('id').isInt(), async (req, re
         }
       }
     });
-
   } catch (error) {
     next(error);
   }
@@ -619,14 +668,12 @@ router.get('/:id/stats', authenticate, param('id').isInt(), async (req, res, nex
         errors: errors.array()
       });
     }
-
     const { id } = req.params;
     const {
       period = '30', // dias
       year = new Date().getFullYear(),
       month = new Date().getMonth() + 1
     } = req.query;
-
     // Verificar permissão
     if (req.user.role !== 'admin' && req.user.id != id) {
       return res.status(403).json({
@@ -634,7 +681,6 @@ router.get('/:id/stats', authenticate, param('id').isInt(), async (req, res, nex
         message: 'Acesso negado'
       });
     }
-
     // Estatísticas gerais
     const generalStatsResult = await pool.query(`
       SELECT 
@@ -646,12 +692,11 @@ router.get('/:id/stats', authenticate, param('id').isInt(), async (req, res, nex
         COALESCE(SUM(CASE WHEN c.status = 'paid' THEN c.amount ELSE 0 END), 0) as paid_amount,
         COALESCE(SUM(CASE WHEN c.status = 'pending' THEN c.amount ELSE 0 END), 0) as pending_amount,
         COALESCE(AVG(CASE WHEN c.status = 'paid' THEN c.amount ELSE NULL END), 0) as avg_commission,
-        COUNT(DISTINCT a.patient_id) as unique_referrals
+        COUNT(DISTINCT b.client_id) as unique_referrals
       FROM commissions c
-      LEFT JOIN appointments a ON c.appointment_id = a.id
+      LEFT JOIN bookings b ON c.booking_id = b.id
       WHERE c.affiliate_id = $1
     `, [id]);
-
     // Estatísticas por período
     let periodCondition = '';
     if (period === '7') {
@@ -663,18 +708,16 @@ router.get('/:id/stats', authenticate, param('id').isInt(), async (req, res, nex
     } else if (period === 'year') {
       periodCondition = `AND EXTRACT(YEAR FROM c.created_at) = ${year}`;
     }
-
     const periodStatsResult = await pool.query(`
       SELECT 
         COUNT(c.id) as period_commissions,
         COALESCE(SUM(c.amount), 0) as period_amount,
         COALESCE(SUM(CASE WHEN c.status = 'paid' THEN c.amount ELSE 0 END), 0) as period_paid,
-        COUNT(DISTINCT a.patient_id) as period_referrals
+        COUNT(DISTINCT b.client_id) as period_referrals
       FROM commissions c
-      LEFT JOIN appointments a ON c.appointment_id = a.id
+      LEFT JOIN bookings b ON c.booking_id = b.id
       WHERE c.affiliate_id = $1 ${periodCondition}
     `, [id]);
-
     // Evolução mensal (últimos 12 meses)
     const monthlyEvolutionResult = await pool.query(`
       SELECT 
@@ -682,39 +725,36 @@ router.get('/:id/stats', authenticate, param('id').isInt(), async (req, res, nex
         COUNT(c.id) as commissions,
         COALESCE(SUM(c.amount), 0) as amount,
         COALESCE(SUM(CASE WHEN c.status = 'paid' THEN c.amount ELSE 0 END), 0) as paid_amount,
-        COUNT(DISTINCT a.patient_id) as referrals
+        COUNT(DISTINCT b.client_id) as referrals
       FROM commissions c
-      LEFT JOIN appointments a ON c.appointment_id = a.id
+      LEFT JOIN bookings b ON c.booking_id = b.id
       WHERE c.affiliate_id = $1 
         AND c.created_at >= CURRENT_DATE - INTERVAL '12 months'
       GROUP BY DATE_TRUNC('month', c.created_at)
       ORDER BY month
     `, [id]);
-
     // Top tipos de consulta referenciados
     const topTypesResult = await pool.query(`
       SELECT 
-        a.type as appointment_type,
+        s.name as service_name,
         COUNT(c.id) as count,
         COALESCE(SUM(c.amount), 0) as total_commission
       FROM commissions c
-      INNER JOIN appointments a ON c.appointment_id = a.id
+      INNER JOIN bookings b ON c.booking_id = b.id
+      INNER JOIN services s ON b.service_id = s.id
       WHERE c.affiliate_id = $1 ${periodCondition}
-      GROUP BY a.type
+      GROUP BY s.name
       ORDER BY count DESC
       LIMIT 5
     `, [id]);
-
     const generalStats = generalStatsResult.rows[0];
     const periodStats = periodStatsResult.rows[0];
     const monthlyEvolution = monthlyEvolutionResult.rows;
     const topTypes = topTypesResult.rows;
-
     // Calcular taxas
     const conversionRate = generalStats.unique_referrals > 0 
       ? ((generalStats.paid_commissions / generalStats.unique_referrals) * 100).toFixed(2)
       : 0;
-
     res.json({
       success: true,
       data: {
@@ -746,13 +786,12 @@ router.get('/:id/stats', authenticate, param('id').isInt(), async (req, res, nex
           paid_amount: parseFloat(evolution.paid_amount)
         })),
         top_types: topTypes.map(type => ({
-          appointment_type: type.appointment_type,
+          service_name: type.service_name,
           count: parseInt(type.count),
           total_commission: parseFloat(type.total_commission)
         }))
       }
     });
-
   } catch (error) {
     next(error);
   }
@@ -769,9 +808,7 @@ router.get('/code/:code', param('code').isAlphanumeric(), async (req, res, next)
         errors: errors.array()
       });
     }
-
     const { code } = req.params;
-
     // Buscar afiliado pelo código
     const affiliateResult = await pool.query(`
       SELECT 
@@ -780,33 +817,87 @@ router.get('/code/:code', param('code').isAlphanumeric(), async (req, res, next)
         u.status as user_status,
         a.affiliate_code,
         a.commission_rate,
-        a.status as affiliate_status
+        a.status as affiliate_status,
+        a.affiliate_link
       FROM users u
       INNER JOIN affiliates a ON u.id = a.user_id
       WHERE a.affiliate_code = $1 
         AND u.status = 'ativo' 
         AND a.status = 'ativo'
     `, [code.toUpperCase()]);
-
     if (affiliateResult.rows.length === 0) {
       return res.status(404).json({
         success: false,
         message: 'Código de afiliado não encontrado ou inativo'
       });
     }
-
     const affiliate = affiliateResult.rows[0];
-
     res.json({
       success: true,
       message: 'Código de afiliado válido',
       data: {
         affiliate_name: affiliate.name,
         affiliate_code: affiliate.affiliate_code,
+        affiliate_link: affiliate.affiliate_link,
         commission_rate: affiliate.commission_rate
       }
     });
+  } catch (error) {
+    next(error);
+  }
+});
 
+// POST /api/affiliates/:id/generate-link - Gerar novo link de afiliado
+router.post('/:id/generate-link', authenticate, param('id').isInt(), async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID inválido',
+        errors: errors.array()
+      });
+    }
+    const { id } = req.params;
+    
+    // Verificar permissão
+    if (req.user.role !== 'admin' && req.user.id != id) {
+      return res.status(403).json({
+        success: false,
+        message: 'Acesso negado'
+      });
+    }
+    
+    // Buscar código do afiliado
+    const affiliateResult = await pool.query(
+      'SELECT affiliate_code FROM affiliates WHERE user_id = $1',
+      [id]
+    );
+    
+    if (affiliateResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Afiliado não encontrado'
+      });
+    }
+    
+    const affiliateCode = affiliateResult.rows[0].affiliate_code;
+    const newLink = generateAffiliateLink(affiliateCode);
+    
+    // Atualizar link no banco
+    await pool.query(
+      'UPDATE affiliates SET affiliate_link = $1, updated_at = NOW() WHERE user_id = $2',
+      [newLink, id]
+    );
+    
+    logger.info(`Novo link de afiliado gerado para: ${id}`);
+    res.json({
+      success: true,
+      message: 'Link de afiliado gerado com sucesso',
+      data: {
+        affiliate_link: newLink
+      }
+    });
   } catch (error) {
     next(error);
   }
