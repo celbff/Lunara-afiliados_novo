@@ -1,6 +1,7 @@
 {
   "name": "lunara-afiliados",
   "version": "1.0.0",
+  "type": "module",
   "description": "Sistema de gestão de afiliados para terapeutas",
   "main": "server.js",
   "scripts": {
