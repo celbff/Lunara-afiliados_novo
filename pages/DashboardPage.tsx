@@ -1,630 +1,547 @@
-// pages/DashboardPage.tsx - Dashboard Principal com Visão Geral da Clínica
-'use client'
+import { useState, useEffect } from 'react';
+import Head from 'next/head';
+import Link from 'next/link';
+import { createClient } from '@supabase/supabase-js';
 
-import React, { useState, useMemo } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
-import { Button } from '@/components/ui/Button'
-import { Badge } from '@/components/ui/Badge'
-import { Progress } from '@/components/ui/Progress'
-import { 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  PieChart,
-  Pie,
-  Cell,
-  Area,
-  AreaChart
-} from 'recharts'
-import { 
-  Calendar,
-  Clock,
-  DollarSign,
-  Users,
-  TrendingUp,
-  TrendingDown,
-  Activity,
-  AlertCircle,
-  CheckCircle,
-  Plus,
-  Eye,
-  Bell,
-  Settings,
-  RefreshCw,
-  Filter,
-  ArrowRight,
-  Target,
-  Award,
-  BookOpen,
-  Phone,
-  Mail,
-  MapPin
-} from 'lucide-react'
-import { useAgenda } from '@/hooks/useAgenda'
-import { toast } from '@/hooks/use-toast'
-import { format, isToday, isTomorrow, parseISO, startOfDay, endOfDay, addDays, subDays } from 'date-fns'
-import { ptBR } from 'date-fns/locale'
-import Link from 'next/link'
+// Configuração do Supabase
+const supabaseUrl = 'https://gzyrbtrinccwqyeocymh.supabase.co';
+const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd6eXJidHJpbmNjd3F5ZW9jeW1oIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTU2MjgyOTIsImV4cCI6MjA3MTIwNDI5Mn0.rJ_C6t3lE3efsD_kQUoGvViCJodHc9NNGQukX-SPEMM';
+const supabase = createClient(supabaseUrl, supabaseKey);
 
-const CORES_STATUS = {
-  agendado: '#94A3B8',
-  confirmado: '#3B82F6', 
-  realizado: '#10B981',
-  cancelado: '#EF4444',
-  faltou: '#F59E0B'
-}
+const DashboardPage = () => {
+  const [appointments, setAppointments] = useState<any[]>([]);
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [showModal, setShowModal] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [toast, setToast] = useState('');
 
-export default function DashboardPage() {
-  const { state, actions } = useAgenda()
-  const [loading, setLoading] = useState(false)
-  const [periodoSelecionado, setPeriodoSelecionado] = useState<'hoje' | 'semana' | 'mes'>('hoje')
+  // Dados do afiliado
+  const [user] = useState({ name: 'João Silva', since: 'Jan/2023' });
 
-  const hoje = new Date()
-  const inicioHoje = startOfDay(hoje)
-  const fimHoje = endOfDay(hoje)
+  // Pacientes e terapias
+  const pacientes = ['Ana Silva', 'Carlos Souza', 'Joana Almeida', 'Lucas Melo', 'Maria Costa'];
+  const terapias = ['Sessão de Fisioterapia', 'Terapia Ocupacional'];
+  
+  const [form, setForm] = useState({
+    patient: pacientes[0],
+    therapy: terapias[0],
+    datetime: ''
+  });
 
-  // Agendamentos de hoje
-  const agendamentosHoje = useMemo(() => {
-    return state.agendamentos
-      .filter(agendamento => {
-        const dataAgendamento = parseISO(agendamento.data)
-        return dataAgendamento >= inicioHoje && dataAgendamento <= fimHoje
-      })
-      .sort((a, b) => a.hora.localeCompare(b.hora))
-  }, [state.agendamentos, inicioHoje, fimHoje])
+  // Carregar agendamentos ao iniciar
+  useEffect(() => {
+    loadAppointments();
+  }, []);
 
-  // Próximos agendamentos (próximos 7 dias)
-  const proximosAgendamentos = useMemo(() => {
-    const inicioAmanha = startOfDay(addDays(hoje, 1))
-    const fimSemana = endOfDay(addDays(hoje, 7))
-    
-    return state.agendamentos
-      .filter(agendamento => {
-        const dataAgendamento = parseISO(agendamento.data)
-        return dataAgendamento >= inicioAmanha && dataAgendamento <= fimSemana
-      })
-      .sort((a, b) => {
-        const dataCompare = a.data.localeCompare(b.data)
-        return dataCompare !== 0 ? dataCompare : a.hora.localeCompare(b.hora)
-      })
-      .slice(0, 5)
-  }, [state.agendamentos, hoje])
-
-  // Métricas do período selecionado
-  const metricas = useMemo(() => {
-    let dataInicio: Date
-    let dataFim: Date
-    
-    switch (periodoSelecionado) {
-      case 'hoje':
-        dataInicio = inicioHoje
-        dataFim = fimHoje
-        break
-      case 'semana':
-        dataInicio = startOfDay(subDays(hoje, 7))
-        dataFim = fimHoje
-        break
-      case 'mes':
-        dataInicio = startOfDay(subDays(hoje, 30))
-        dataFim = fimHoje
-        break
-    }
-
-    const agendamentosPeriodo = state.agendamentos.filter(agendamento => {
-      const dataAgendamento = parseISO(agendamento.data)
-      return dataAgendamento >= dataInicio && dataAgendamento <= dataFim
-    })
-
-    const total = agendamentosPeriodo.length
-    const realizados = agendamentosPeriodo.filter(a => a.status === 'realizado').length
-    const confirmados = agendamentosPeriodo.filter(a => a.status === 'confirmado').length
-    const cancelados = agendamentosPeriodo.filter(a => a.status === 'cancelado').length
-    const faltaram = agendamentosPeriodo.filter(a => a.status === 'faltou').length
-
-    const receita = agendamentosPeriodo
-      .filter(a => a.status === 'realizado')
-      .reduce((acc, a) => acc + (a.valor || a.terapia?.preco || 0), 0)
-
-    const receitaPotencial = agendamentosPeriodo
-      .reduce((acc, a) => acc + (a.valor || a.terapia?.preco || 0), 0)
-
-    const taxaRealizacao = total > 0 ? (realizados / total) * 100 : 0
-    const taxaCancelamento = total > 0 ? (cancelados / total) * 100 : 0
-
-    const pacientesUnicos = new Set(agendamentosPeriodo.map(a => a.paciente_id)).size
-
-    return {
-      total,
-      realizados,
-      confirmados,
-      cancelados,
-      faltaram,
-      receita,
-      receitaPotencial,
-      taxaRealizacao,
-      taxaCancelamento,
-      pacientesUnicos
-    }
-  }, [state.agendamentos, periodoSelecionado, inicioHoje, fimHoje, hoje])
-
-  // Dados para gráfico de status
-  const dadosStatus = useMemo(() => [
-    { name: 'Realizados', value: metricas.realizados, color: CORES_STATUS.realizado },
-    { name: 'Confirmados', value: metricas.confirmados, color: CORES_STATUS.confirmado },
-    { name: 'Cancelados', value: metricas.cancelados, color: CORES_STATUS.cancelado },
-    { name: 'Faltaram', value: metricas.faltaram, color: CORES_STATUS.faltou }
-  ].filter(item => item.value > 0), [metricas])
-
-  // Terapias mais populares
-  const terapiasPopulares = useMemo(() => {
-    const contador: Record<string, { nome: string, count: number, receita: number, cor: string }> = {}
-    
-    state.agendamentos.forEach(agendamento => {
-      if (!agendamento.terapia) return
-      
-      const terapiaId = agendamento.terapia.id
-      if (!contador[terapiaId]) {
-        contador[terapiaId] = {
-          nome: agendamento.terapia.nome,
-          count: 0,
-          receita: 0,
-          cor: agendamento.terapia.cor
-        }
-      }
-      
-      contador[terapiaId].count++
-      if (agendamento.status === 'realizado') {
-        contador[terapiaId].receita += agendamento.valor || agendamento.terapia.preco
-      }
-    })
-    
-    return Object.values(contador)
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 5)
-  }, [state.agendamentos])
-
-  // Alertas e notificações
-  const alertas = useMemo(() => {
-    const alerts: Array<{ tipo: 'info' | 'warning' | 'error', titulo: string, descricao: string }> = []
-    
-    // Agendamentos não confirmados para hoje
-    const naoConfirmadosHoje = agendamentosHoje.filter(a => a.status === 'agendado')
-    if (naoConfirmadosHoje.length > 0) {
-      alerts.push({
-        tipo: 'warning',
-        titulo: `${naoConfirmadosHoje.length} agendamento(s) não confirmado(s)`,
-        descricao: 'Para hoje - considere entrar em contato com os pacientes'
-      })
-    }
-
-    // Taxa de cancelamento alta
-    if (metricas.taxaCancelamento > 20) {
-      alerts.push({
-        tipo: 'error',
-        titulo: 'Taxa de cancelamento alta',
-        descricao: `${metricas.taxaCancelamento.toFixed(1)}% - acima do recomendado (20%)`
-      })
-    }
-
-    // Receita perdida significativa
-    const receitaPerdida = metricas.receitaPotencial - metricas.receita
-    if (receitaPerdida > 500) {
-      alerts.push({
-        tipo: 'warning',
-        titulo: 'Receita perdida significativa',
-        descricao: `R$ ${receitaPerdida.toFixed(0)} em potencial não realizado`
-      })
-    }
-
-    return alerts
-  }, [agendamentosHoje, metricas])
-
-  const handleConfirmarAgendamento = async (agendamentoId: string) => {
-    setLoading(true)
+  const loadAppointments = async () => {
     try {
-      await actions.updateAgendamento(agendamentoId, { status: 'confirmado' })
-      toast({
-        title: "Agendamento confirmado",
-        description: "Status atualizado com sucesso",
-      })
-    } catch (error) {
-      toast({
-        title: "Erro",
-        description: "Erro ao confirmar agendamento",
-        variant: "destructive"
-      })
-    } finally {
-      setLoading(false)
-    }
-  }
+      const { data, error } = await supabase
+        .from('appointments')
+        .select('*')
+        .order('datetime', { ascending: true });
 
-  const formatarDataCompleta = (data: string) => {
-    const dataObj = parseISO(data)
-    if (isToday(dataObj)) return 'Hoje'
-    if (isTomorrow(dataObj)) return 'Amanhã'
-    return format(dataObj, "EEE, dd/MM", { locale: ptBR })
-  }
+      if (error) throw error;
+      setAppointments(data);
+    } catch (error: any) {
+      showToast('Erro ao carregar agendamentos');
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const openModal = (date: Date) => {
+    setSelectedDate(date);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    setForm(prev => ({ ...prev, datetime: `${year}-${month}-${day}T09:00` }));
+    setShowModal(true);
+  };
+
+  const closeModal = () => {
+    setShowModal(false);
+    setForm({ patient: pacientes[0], therapy: terapias[0], datetime: '' });
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedDate) return;
+
+    try {
+      const { error } = await supabase.from('appointments').insert([{
+        patient: form.patient,
+        therapy: form.therapy,
+        datetime: form.datetime
+      }]);
+
+      if (error) throw error;
+
+      showToast('Agendamento salvo com sucesso!');
+      closeModal();
+      loadAppointments(); // Recarregar
+    } catch (error: any) {
+      showToast('Erro ao salvar agendamento');
+      console.error(error);
+    }
+  };
+
+  const showToast = (message: string) => {
+    setToast(message);
+    setTimeout(() => setToast(''), 3000);
+  };
+
+  // Gerar dias do mês
+  const renderCalendar = () => {
+    const today = new Date();
+    const month = today.getMonth();
+    const year = today.getFullYear();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const startDate = new Date(firstDay);
+    startDate.setDate(firstDay.getDate() - firstDay.getDay());
+
+    const rows = [];
+    let row = [];
+    let date = new Date(startDate);
+
+    while (date <= lastDay || row.length > 0) {
+      if (row.length === 7) {
+        rows.push(<tr key={date.getTime()}>{row}</tr>);
+        row = [];
+      }
+
+      const dateString = date.toISOString().split('T')[0];
+      const hasAppointment = appointments.some(a => a.datetime.startsWith(dateString));
+
+      const cell = (
+        <td
+          key={date.getTime()}
+          style={{
+            padding: '1rem 0.5rem',
+            textAlign: 'center',
+            border: '1px solid rgba(0,74,108,0.1)',
+            cursor: date.getMonth() === month ? 'pointer' : 'default',
+            opacity: date.getMonth() === month ? 1 : 0.3,
+            position: 'relative',
+            height: '50px'
+          }}
+          onClick={() => date.getMonth() === month && openModal(new Date(date))}
+        >
+          {date.getDate()}
+          {hasAppointment && (
+            <span
+              style={{
+                position: 'absolute',
+                bottom: '0.3rem',
+                right: '0.3rem',
+                fontSize: '0.7rem',
+                color: '#004a6c'
+              }}
+            >
+              ✓
+            </span>
+          )}
+        </td>
+      );
+
+      row.push(cell);
+      date.setDate(date.getDate() + 1);
+    }
+
+    if (row.length > 0) {
+      rows.push(<tr key="last">{row}</tr>);
+    }
+
+    return rows;
+  };
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-          <p className="text-gray-600">
-            Visão geral da sua clínica - {format(hoje, "EEEE, dd 'de' MMMM 'de' yyyy", { locale: ptBR })}
-          </p>
-        </div>
-        <div className="flex space-x-3">
-          <Button variant="outline" size="sm">
-            <Bell className="w-4 h-4 mr-2" />
-            Notificações
-          </Button>
-          <Button variant="outline" size="sm">
-            <Settings className="w-4 h-4 mr-2" />
-            Configurações
-          </Button>
-          <Link href="/agenda">
-            <Button className="bg-blue-600 hover:bg-blue-700">
-              <Plus className="w-4 h-4 mr-2" />
-              Novo Agendamento
-            </Button>
-          </Link>
-        </div>
-      </div>
+    <>
+      <Head>
+        <title>Painel do Afiliado - Lunara</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      </Head>
 
-      {/* Alertas */}
-      {alertas.length > 0 && (
-        <div className="space-y-2">
-          {alertas.map((alerta, index) => (
-            <Card key={index} className={`border-l-4 ${
-              alerta.tipo === 'error' ? 'border-l-red-500 bg-red-50' :
-              alerta.tipo === 'warning' ? 'border-l-yellow-500 bg-yellow-50' :
-              'border-l-blue-500 bg-blue-50'
-            }`}>
-              <CardContent className="p-4">
-                <div className="flex items-center">
-                  <AlertCircle className={`w-5 h-5 mr-3 ${
-                    alerta.tipo === 'error' ? 'text-red-600' :
-                    alerta.tipo === 'warning' ? 'text-yellow-600' :
-                    'text-blue-600'
-                  }`} />
-                  <div>
-                    <div className="font-medium">{alerta.titulo}</div>
-                    <div className="text-sm text-gray-600">{alerta.descricao}</div>
-                  </div>
+      <div style={{ backgroundColor: '#e6f7f0', minHeight: '100vh' }}>
+        {/* Header */}
+        <header style={{
+          backgroundColor: 'white',
+          boxShadow: '0 2px 10px rgba(0,0,0,0.05)',
+          padding: '1rem 0'
+        }}>
+          <div style={{
+            maxWidth: '1200px',
+            margin: '0 auto',
+            padding: '0 1rem',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center'
+          }}>
+            <div className="logo">
+              <Link href="/pages/DashboardPage">
+                <img src="/imagens/logo.webp" alt="Logo Lunara Afiliados" style={{ height: '36px' }} />
+              </Link>
+            </div>
+            <nav>
+              <ul style={{
+                display: 'flex',
+                gap: '1rem',
+                listStyle: 'none',
+                overflowX: 'auto',
+                padding: '0.5rem 0',
+                whiteSpace: 'nowrap',
+                scrollbarWidth: 'none'
+              }}>
+                <li><Link href="/pages/DashboardPage" style={{
+                  color: '#004a6c',
+                  fontWeight: 'bold',
+                  padding: '0.5rem 0.8rem',
+                  borderRadius: '8px',
+                  background: '#e6f7f0'
+                }}>Painel</Link></li>
+                <li><a href="#relatorios" style={{ color: '#004a6c', padding: '0.5rem 0.8rem', borderRadius: '8px' }}>Relatórios</a></li>
+                <li><a href="#materiais" style={{ color: '#004a6c', padding: '0.5rem 0.8rem', borderRadius: '8px' }}>Materiais</a></li>
+                <li><a href="#configuracoes" style={{ color: '#004a6c', padding: '0.5rem 0.8rem', borderRadius: '8px' }}>Configurações</a></li>
+                <li><a href="/index.html" style={{ color: '#004a6c', padding: '0.5rem 0.8rem', borderRadius: '8px' }}>Sair</a></li>
+              </ul>
+            </nav>
+          </div>
+        </header>
+
+        <div style={{
+          maxWidth: '1200px',
+          margin: '0 auto',
+          padding: '2rem 1rem'
+        }}>
+          {/* Dashboard Header */}
+          <section style={{
+            background: 'linear-gradient(135deg, #004a6c 0%, #003d5b 100%)',
+            color: 'white',
+            padding: '3rem 0 2rem',
+            borderRadius: '15px 15px 0 0',
+            overflow: 'hidden'
+          }}>
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '1rem',
+              marginBottom: '2rem',
+              padding: '0 1.5rem'
+            }}>
+              <div>
+                <h1 style={{ margin: 0 }}>Painel do Afiliado</h1>
+                <p style={{ opacity: 0.9 }}>Gerencie suas comissões e agende sessões</p>
+              </div>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '1rem'
+              }}>
+                <div style={{
+                  width: '60px',
+                  height: '60px',
+                  borderRadius: '50%',
+                  background: 'white',
+                  color: '#004a6c',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontWeight: 'bold',
+                  fontSize: '1.5rem'
+                }}>
+                  {user.name.split(' ').map(n => n[0]).join('')}
                 </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
+                <div>
+                  <h3 style={{ margin: 0 }}>{user.name}</h3>
+                  <p style={{ margin: 0, opacity: 0.8 }}>Afiliado desde: {user.since}</p>
+                </div>
+              </div>
+            </div>
 
-      {/* Filtro de Período */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex items-center space-x-4">
-            <span className="text-sm font-medium text-gray-700">Período:</span>
-            <div className="flex space-x-2">
+            {/* Stats Grid */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+              gap: '1.5rem',
+              padding: '0 1.5rem 2rem'
+            }}>
               {[
-                { key: 'hoje', label: 'Hoje' },
-                { key: 'semana', label: 'Últimos 7 dias' },
-                { key: 'mes', label: 'Últimos 30 dias' }
-              ].map(opcao => (
-                <Button
-                  key={opcao.key}
-                  variant={periodoSelecionado === opcao.key ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setPeriodoSelecionado(opcao.key as any)}
-                >
-                  {opcao.label}
-                </Button>
+                { icon: 'dollar-sign', label: 'Total de Comissões', value: 'R$ 2.450' },
+                { icon: 'shopping-cart', label: 'Vendas Realizadas', value: '48' },
+                { icon: 'users', label: 'Visitantes Únicos', value: '1.250' },
+                { icon: 'chart-line', label: 'Taxa de Conversão', value: '3.8%' }
+              ].map((stat, i) => (
+                <div key={i} style={{
+                  background: 'rgba(255,255,255,0.15)',
+                  backdropFilter: 'blur(10px)',
+                  borderRadius: '12px',
+                  padding: '1.5rem',
+                  textAlign: 'center',
+                  border: '1px solid rgba(255,255,255,0.2)'
+                }}>
+                  <i className={`fas fa-${stat.icon}`} style={{
+                    fontSize: '2.5rem',
+                    color: '#d4af37',
+                    marginBottom: '0.8rem'
+                  }}></i>
+                  <h3 style={{
+                    fontSize: '2rem',
+                    margin: '0.5rem 0',
+                    color: 'white'
+                  }}>{stat.value}</h3>
+                  <p style={{ opacity: 0.9 }}>{stat.label}</p>
+                </div>
               ))}
             </div>
+          </section>
+
+          {/* Ações Rápidas */}
+          <div style={{
+            display: 'flex',
+            gap: '1rem',
+            flexWrap: 'wrap',
+            padding: '1.5rem',
+            background: 'white',
+            borderTop: '1px solid rgba(0,74,108,0.1)',
+            borderBottom: '1px solid rgba(0,74,108,0.1)'
+          }}>
+            {[
+              { icon: 'link', label: 'Meu Link de Afiliado' },
+              { icon: 'share-alt', label: 'Compartilhar' },
+              { icon: 'download', label: 'Baixar Relatório' }
+            ].map((btn, i) => (
+              <Link key={i} href="#" style={{
+                flex: 1,
+                minWidth: '180px',
+                background: '#004a6c',
+                color: 'white',
+                padding: '0.75rem 1.5rem',
+                borderRadius: '50px',
+                textAlign: 'center',
+                textDecoration: 'none',
+                fontWeight: 'bold',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '0.5rem',
+                transition: 'all 0.3s ease'
+              }}>
+                <i className={`fas fa-${btn.icon}`}></i>
+                {btn.label}
+              </Link>
+            ))}
           </div>
-        </CardContent>
-      </Card>
 
-      {/* KPIs Principais */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Agendamentos</p>
-                <p className="text-3xl font-bold text-blue-600">{metricas.total}</p>
-                <div className="flex items-center mt-2">
-                  <CheckCircle className="w-4 h-4 text-green-600 mr-1" />
-                  <span className="text-sm text-green-600">{metricas.realizados} realizados</span>
-                </div>
-              </div>
-              <Calendar className="w-12 h-12 text-blue-600" />
-            </div>
-          </CardContent>
-        </Card>
+          {/* Calendário de Agendamento */}
+          <section style={{
+            background: 'white',
+            borderRadius: '12px',
+            padding: '2rem',
+            margin: '2rem 0',
+            boxShadow: '0 4px 15px rgba(0,74,108,0.1)',
+            border: '1px solid rgba(0,74,108,0.1)'
+          }}>
+            <h2 style={{
+              color: '#004a6c',
+              marginBottom: '1.5rem',
+              fontSize: '1.5rem'
+            }}>Agendamento de Sessões</h2>
+            <table style={{
+              width: '100%',
+              borderCollapse: 'collapse',
+              fontSize: '0.95rem'
+            }}>
+              <thead>
+                <tr style={{
+                  background: '#f0f9f8',
+                  color: '#004a6c',
+                  fontWeight: '600',
+                  borderBottom: '1px solid rgba(0,74,108,0.1)'
+                }}>
+                  <th style={{ padding: '0.7rem' }}>Dom</th>
+                  <th>Seg</th>
+                  <th>Ter</th>
+                  <th>Qua</th>
+                  <th>Qui</th>
+                  <th>Sex</th>
+                  <th>Sáb</th>
+                </tr>
+              </thead>
+              <tbody>
+                {renderCalendar()}
+              </tbody>
+            </table>
+          </section>
 
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Receita</p>
-                <p className="text-3xl font-bold text-green-600">R$ {metricas.receita.toFixed(0)}</p>
-                <div className="flex items-center mt-2">
-                  <TrendingUp className="w-4 h-4 text-green-600 mr-1" />
-                  <span className="text-sm text-green-600">
-                    {((metricas.receita / metricas.receitaPotencial) * 100).toFixed(1)}% do potencial
-                  </span>
-                </div>
-              </div>
-              <DollarSign className="w-12 h-12 text-green-600" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Taxa Realização</p>
-                <p className="text-3xl font-bold text-purple-600">{metricas.taxaRealizacao.toFixed(1)}%</p>
-                <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
-                  <div 
-                    className="bg-purple-600 h-2 rounded-full" 
-                    style={{ width: `${metricas.taxaRealizacao}%` }}
-                  />
-                </div>
-              </div>
-              <Target className="w-12 h-12 text-purple-600" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Pacientes</p>
-                <p className="text-3xl font-bold text-orange-600">{metricas.pacientesUnicos}</p>
-                <p className="text-sm text-gray-500 mt-2">únicos no período</p>
-              </div>
-              <Users className="w-12 h-12 text-orange-600" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Agendamentos de Hoje */}
-        <div className="lg:col-span-2">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center">
-                  <Clock className="w-5 h-5 mr-2 text-blue-600" />
-                  Agendamentos de Hoje ({agendamentosHoje.length})
-                </CardTitle>
-                <Link href="/agenda">
-                  <Button variant="outline" size="sm">
-                    <Eye className="w-4 h-4 mr-2" />
-                    Ver Agenda
-                  </Button>
-                </Link>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {agendamentosHoje.length === 0 ? (
-                <div className="text-center py-8">
-                  <Calendar className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                  <p className="text-gray-500">Nenhum agendamento para hoje</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {agendamentosHoje.map((agendamento) => (
-                    <div 
-                      key={agendamento.id}
-                      className="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
-                    >
-                      <div className="flex items-center space-x-4">
-                        <div className="text-center">
-                          <div className="text-lg font-bold text-blue-600">{agendamento.hora}</div>
-                          <div className="text-xs text-gray-500">
-                            {agendamento.terapia?.duracao}min
-                          </div>
-                        </div>
-                        <div 
-                          className="w-1 h-12 rounded-full"
-                          style={{ backgroundColor: CORES_STATUS[agendamento.status] }}
-                        />
-                        <div>
-                          <div className="font-medium">{agendamento.paciente?.nome}</div>
-                          <div className="text-sm text-gray-600">{agendamento.terapia?.nome}</div>
-                          <div className="text-sm text-gray-500">
-                            R$ {(agendamento.valor || agendamento.terapia?.preco || 0).toFixed(2)}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <Badge 
-                          variant={
-                            agendamento.status === 'realizado' ? 'success' :
-                            agendamento.status === 'confirmado' ? 'default' :
-                            agendamento.status === 'cancelado' ? 'destructive' :
-                            'secondary'
-                          }
-                        >
-                          {agendamento.status}
-                        </Badge>
-                        {agendamento.status === 'agendado' && (
-                          <Button 
-                            size="sm" 
-                            variant="outline"
-                            onClick={() => handleConfirmarAgendamento(agendamento.id)}
-                            disabled={loading}
-                          >
-                            <CheckCircle className="w-4 h-4 mr-1" />
-                            Confirmar
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          {/* Comissões Recentes */}
+          <section style={{
+            background: 'white',
+            borderRadius: '12px',
+            padding: '2rem',
+            margin: '2rem 0',
+            boxShadow: '0 4px 15px rgba(0,74,108,0.1)',
+            border: '1px solid rgba(0,74,108,0.1)'
+          }}>
+            <h2 style={{
+              color: '#004a6c',
+              marginBottom: '1.5rem',
+              fontSize: '1.5rem'
+            }}>Comissões Recentes</h2>
+            <table style={{
+              width: '100%',
+              borderCollapse: 'collapse'
+            }}>
+              <thead>
+                <tr>
+                  <th style={{
+                    padding: '1rem',
+                    textAlign: 'left',
+                    borderBottom: '1px solid rgba(0,74,108,0.1)',
+                    background: '#f0f9f8',
+                    color: '#004a6c',
+                    fontWeight: '600'
+                  }}>Data</th>
+                  <th style={{
+                    padding: '1rem',
+                    textAlign: 'left',
+                    borderBottom: '1px solid rgba(0,74,108,0.1)',
+                    background: '#f0f9f8',
+                    color: '#004a6c',
+                    fontWeight: '600'
+                  }}>Produto</th>
+                  <th style={{
+                    padding: '1rem',
+                    textAlign: 'left',
+                    borderBottom: '1px solid rgba(0,74,108,0.1)',
+                    background: '#f0f9f8',
+                    color: '#004a6c',
+                    fontWeight: '600'
+                  }}>Valor</th>
+                  <th style={{
+                    padding: '1rem',
+                    textAlign: 'left',
+                    borderBottom: '1px solid rgba(0,74,108,0.1)',
+                    background: '#f0f9f8',
+                    color: '#004a6c',
+                    fontWeight: '600'
+                  }}>Comissão</th>
+                  <th style={{
+                    padding: '1rem',
+                    textAlign: 'left',
+                    borderBottom: '1px solid rgba(0,74,108,0.1)',
+                    background: '#f0f9f8',
+                    color: '#004a6c',
+                    fontWeight: '600'
+                  }}>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td style={{ padding: '1rem', borderBottom: '1px solid rgba(0,74,108,0.1)' }}>23/10/2023</td>
+                  <td style={{ padding: '1rem', borderBottom: '1px solid rgba(0,74,108,0.1)' }}>Kit Terapia Completo</td>
+                  <td style={{ padding: '1rem', borderBottom: '1px solid rgba(0,74,108,0.1)' }}>R$ 297,00</td>
+                  <td style={{ padding: '1rem', borderBottom: '1px solid rgba(0,74,108,0.1)' }}>R$ 89,10</td>
+                  <td style={{ padding: '1rem', borderBottom: '1px solid rgba(0,74,108,0.1)' }}>
+                    <span style={{
+                      display: 'inline-block',
+                      padding: '0.3rem 0.8rem',
+                      borderRadius: '20px',
+                      fontSize: '0.8rem',
+                      fontWeight: 'bold',
+                      background: 'rgba(33,150,83,0.15)',
+                      color: '#2e7d32',
+                      border: '1px solid rgba(33,150,83,0.3)'
+                    }}>Pago</span>
+                  </td>
+                </tr>
+                <tr>
+                  <td style={{ padding: '1rem', borderBottom: '1px solid rgba(0,74,108,0.1)' }}>22/10/2023</td>
+                  <td style={{ padding: '1rem', borderBottom: '1px solid rgba(0,74,108,0.1)' }}>Curso de Meditação</td>
+                  <td style={{ padding: '1rem', borderBottom: '1px solid rgba(0,74,108,0.1)' }}>R$ 97,00</td>
+                  <td style={{ padding: '1rem', borderBottom: '1px solid rgba(0,74,108,0.1)' }}>R$ 29,10</td>
+                  <td style={{ padding: '1rem', borderBottom: '1px solid rgba(0,74,108,0.1)' }}>
+                    <span style={{
+                      display: 'inline-block',
+                      padding: '0.3rem 0.8rem',
+                      borderRadius: '20px',
+                      fontSize: '0.8rem',
+                      fontWeight: 'bold',
+                      background: 'rgba(33,150,83,0.15)',
+                      color: '#2e7d32',
+                      border: '1px solid rgba(33,150,83,0.3)'
+                    }}>Pago</span>
+                  </td>
+                </tr>
+                <tr>
+                  <td style={{ padding: '1rem', borderBottom: '1px solid rgba(0,74,108,0.1)' }}>21/10/2023</td>
+                  <td style={{ padding: '1rem', borderBottom: '1px solid rgba(0,74,108,0.1)' }}>Consultoria Online</td>
+                  <td style={{ padding: '1rem', borderBottom: '1px solid rgba(0,74,108,0.1)' }}>R$ 150,00</td>
+                  <td style={{ padding: '1rem', borderBottom: '1px solid rgba(0,74,108,0.1)' }}>R$ 45,00</td>
+                  <td style={{ padding: '1rem', borderBottom: '1px solid rgba(0,74,108,0.1)' }}>
+                    <span style={{
+                      display: 'inline-block',
+                      padding: '0.3rem 0.8rem',
+                      borderRadius: '20px',
+                      fontSize: '0.8rem',
+                      fontWeight: 'bold',
+                      background: 'rgba(255,193,7,0.15)',
+                      color: '#f57f17',
+                      border: '1px solid rgba(255,193,7,0.3)'
+                    }}>Pendente</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
         </div>
 
-        {/* Próximos Agendamentos */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <ArrowRight className="w-5 h-5 mr-2 text-green-600" />
-              Próximos Agendamentos
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {proximosAgendamentos.length === 0 ? (
-              <div className="text-center py-8">
-                <Calendar className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                <p className="text-sm text-gray-500">Nenhum agendamento futuro</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {proximosAgendamentos.map((agendamento) => (
-                  <div key={agendamento.id} className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
-                    <div className="text-center min-w-[60px]">
-                      <div className="text-sm font-medium text-gray-900">
-                        {formatarDataCompleta(agendamento.data)}
-                      </div>
-                      <div className="text-sm text-blue-600">{agendamento.hora}</div>
-                    </div>
-                    <div className="flex-1">
-                      <div className="text-sm font-medium">{agendamento.paciente?.nome}</div>
-                      <div className="text-xs text-gray-600">{agendamento.terapia?.nome}</div>
-                    </div>
-                    <Badge 
-                      variant={agendamento.status === 'confirmado' ? 'default' : 'secondary'}
-                      className="text-xs"
-                    >
-                      {agendamento.status}
-                    </Badge>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Gráfico de Status */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <BarChart className="w-5 h-5 mr-2 text-purple-600" />
-              Distribuição por Status
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={250}>
-              <PieChart>
-                <Pie
-                  data={dadosStatus}
-                  cx="50%"
-                  cy="50%"
-                  outerRadius={80}
-                  dataKey="value"
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                >
-                  {dadosStatus.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-
-        {/* Terapias Mais Populares */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <Award className="w-5 h-5 mr-2 text-amber-600" />
-              Terapias Mais Populares
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {terapiasPopulares.map((terapia, index) => (
-                <div key={index} className="flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center">
-                      <span className="text-sm font-bold text-amber-600">#{index + 1}</span>
-                    </div>
-                    <div>
-                      <div className="font-medium text-sm">{terapia.nome}</div>
-                      <div className="text-xs text-gray-500">{terapia.count} agendamentos</div>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-sm font-medium text-green-600">
-                      R$ {terapia.receita.toFixed(0)}
-                    </div>
-                  </div>
+        {/* Modal de Agendamento */}
+        {showModal && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            background: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 1000,
+            padding: '1rem'
+          }}>
+            <div style={{
+              background: 'white',
+              borderRadius: '12px',
+              width: '100%',
+              maxWidth: '400px',
+              padding: '1.5rem',
+              boxShadow: '0 10px 30px rgba(0,0,0,0.2)'
+            }}>
+              <h3 style={{ color: '#004a6c', marginBottom: '1rem' }}>Agendar Nova Sessão</h3>
+              <form onSubmit={handleSubmit}>
+                <div style={{ marginBottom: '1rem' }}>
+                  <label style={{
+                    display: 'block',
+                    marginBottom: '0.5rem',
+                    color: '#004a6c',
+                    fontSize: '0.95rem'
+                  }}>Paciente</label>
+                  <select
+                    value={form.patient}
+                    onChange={e => setForm({ ...form, patient: e.target.value })}
+                    style={{
+                      width: '100%',
+                      padding: '0.75rem',
+                      border: '1px solid rgba(0,74,108,0.1)',
+                      borderRadius: '6px'
+                    }}
+                  >
+                    {pacientes.map(p => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
+                  </select>
                 </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Ações Rápidas */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center">
-            <Activity className="w-5 h-5 mr-2 text-blue-600" />
-            Ações Rápidas
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <Link href="/agenda">
-              <Button variant="outline" className="w-full h-20 flex flex-col items-center justify-center">
-                <Calendar className="w-6 h-6 mb-2" />
-                <span className="text-sm">Nova Consulta</span>
-              </Button>
-            </Link>
-            
-            <Link href="/pacientes">
-              <Button variant="outline" className="w-full h-20 flex flex-col items-center justify-center">
-                <Users className="w-6 h-6 mb-2" />
-                <span className="text-sm">Novo Paciente</span>
-              </Button>
-            </Link>
-            
-            <Link href="/relatorios">
-              <Button variant="outline" className="w-full h-20 flex flex-col items-center justify-center">
-                <BarChart className="w-6 h-6 mb-2" />
-                <span className="text-sm">Relatórios</span>
-              </Button>
-            </Link>
-            
-            <Link href="/terapias">
-              <Button variant="outline" className="w-full h-20 flex flex-col items-center justify-center">
-                <BookOpen className="w-6 h-6 mb-2" />
-                <span className="text-sm">Terapias</span>
-              </Button>
-            </Link>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  )
-}
+                <div style={{ marginBottom: '1rem' }}>
+       
