@@ -4,132 +4,310 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Painel do Afiliado - Lunara</title>
-    <link rel="stylesheet" href="css/style.css">
-    <link rel="stylesheet" href="css/responsive.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        .dashboard-afiliado {
-            background: linear-gradient(135deg, #1a5490 0%, #2a7bc4 100%);
-            color: white;
-            padding: 6rem 0 4rem;
+        :root {
+            --primary-bg: #e6f7f0;
+            --card-bg: white;
+            --text-primary: #004a6c;
+            --border-color: rgba(0, 74, 108, 0.1);
+            --accent-bg: #004a6c;
+            --hover-color: #003d5b;
+            --light-gray: #f0f9f8;
         }
-        .dashboard-header {
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background-color: var(--primary-bg);
+            color: var(--text-primary);
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+
+        header {
+            background: var(--card-bg);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+            padding: 1rem 0;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 1rem;
+        }
+
+        .logo img {
+            height: 36px;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 1rem;
+            list-style: none;
+            overflow-x: auto;
+            padding: 0.5rem 0;
+            white-space: nowrap;
+            scrollbar-width: none;
+        }
+
+        .nav-links::-webkit-scrollbar {
+            display: none;
+        }
+
+        .nav-links a {
+            color: var(--text-primary);
+            text-decoration: none;
+            padding: 0.5rem 0.8rem;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+            border-radius: 8px;
+        }
+
+        .nav-links a:hover,
+        .nav-links a.active {
+            background: #e6f7f0;
+            color: var(--accent-bg);
+            font-weight: 600;
+        }
+
+        .dashboard-container {
+            flex-direction: column;
+            margin-top: 1rem;
+            padding: 1rem;
+            background: var(--card-bg);
+            border-radius: 15px;
+            box-shadow: 0 4px 15px rgba(0, 74, 108, 0.1);
+            overflow: hidden;
+        }
+
+        .sidebar {
+            width: 100%;
+            background: var(--light-gray);
+            padding: 1rem;
+            border-radius: 12px;
+            margin-bottom: 1.5rem;
+        }
+
+        .sidebar h3 {
+            color: var(--text-primary);
+            margin-bottom: 0.8rem;
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        .patient-list,
+        .therapy-list {
+            list-style: none;
+            margin-bottom: 1rem;
+        }
+
+        .patient-list li,
+        .therapy-list li {
+            margin-bottom: 0.5rem;
+            border-radius: 8px;
+            padding: 0.7rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            font-size: 0.9rem;
+        }
+
+        .patient-list li:hover,
+        .therapy-list li:hover {
+            background: #e6f7f0;
+        }
+
+        .therapy-list li.active {
+            background: var(--accent-bg);
+            color: white;
+        }
+
+        .calendar {
+            padding: 1rem;
+        }
+
+        .calendar-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 3rem;
-        }
-        .user-info {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-        }
-        .user-avatar {
-            width: 60px;
-            height: 60px;
-            border-radius: 50%;
-            background: white;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #1a5490;
-            font-size: 1.5rem;
-            font-weight: bold;
-        }
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 2rem;
-            margin-bottom: 3rem;
-        }
-        .stat-card {
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            border-radius: 15px;
-            padding: 2rem;
-            text-align: center;
-            transition: transform 0.3s;
-        }
-        .stat-card:hover {
-            transform: translateY(-10px);
-        }
-        .stat-card i {
-            font-size: 3rem;
             margin-bottom: 1rem;
-            color: #ffd700;
         }
-        .stat-card h3 {
-            font-size: 2.5rem;
-            margin-bottom: 0.5rem;
+
+        .calendar-title {
+            font-size: 1.3rem;
+            color: var(--text-primary);
         }
-        .actions {
-            display: flex;
-            gap: 1rem;
-            justify-content: center;
-            flex-wrap: wrap;
-        }
-        .btn-afiliado {
-            background: white;
-            color: #1a5490;
-            padding: 1rem 2rem;
-            border-radius: 50px;
-            text-decoration: none;
-            font-weight: bold;
-            transition: all 0.3s;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-        .btn-afiliado:hover {
-            background: #f0f0f0;
-            transform: scale(1.05);
-        }
-        .recent-comissions {
-            background: white;
-            color: #333;
-            border-radius: 15px;
-            padding: 2rem;
-            margin-top: 3rem;
-        }
-        .comission-table {
+
+        .calendar-grid {
             width: 100%;
             border-collapse: collapse;
-            margin-top: 1rem;
+            font-size: 0.9rem;
         }
-        .comission-table th,
-        .comission-table td {
-            padding: 1rem;
-            text-align: left;
-            border-bottom: 1px solid #eee;
+
+        .calendar-header-row th {
+            background: var(--light-gray);
+            padding: 0.7rem;
+            text-align: center;
+            color: var(--text-primary);
+            font-weight: 600;
+            border: 1px solid var(--border-color);
         }
-        .comission-table th {
-            background: #f8f9fa;
-            color: #1a5490;
+
+        .calendar-day {
+            padding: 1rem 0.5rem;
+            text-align: center;
+            border: 1px solid var(--border-color);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            height: 50px;
         }
-        .status-badge {
-            display: inline-block;
-            padding: 0.3rem 0.8rem;
-            border-radius: 20px;
-            font-size: 0.8rem;
+
+        .calendar-day.selected {
+            background: var(--accent-bg);
+            color: white;
+            border-color: var(--accent-bg);
             font-weight: bold;
         }
-        .status-paid {
-            background: #d4edda;
-            color: #155724;
+
+        .calendar-day.has-appointment::after {
+            content: "✓";
+            position: absolute;
+            bottom: 0.3rem;
+            right: 0.3rem;
+            font-size: 0.7rem;
+            color: var(--accent-bg);
         }
-        .status-pending {
-            background: #fff3cd;
-            color: #856404;
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            padding: 1rem;
+        }
+
+        .modal-content {
+            background: var(--card-bg);
+            padding: 1.5rem;
+            border-radius: 12px;
+            width: 100%;
+            max-width: 400px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+        }
+
+        .modal h3 {
+            margin-bottom: 1rem;
+            color: var(--text-primary);
+            font-size: 1.2rem;
+        }
+
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: var(--text-primary);
+            font-size: 0.9rem;
+        }
+
+        input[type="datetime-local"] {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-size: 1rem;
+            background: white;
+        }
+
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            font-size: 1rem;
+            width: 100%;
+            margin-bottom: 0.5rem;
+        }
+
+        .btn-primary {
+            background: var(--accent-bg);
+            color: white;
+        }
+
+        .btn-secondary {
+            background: #e6f7f0;
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn:hover {
+            opacity: 0.9;
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #004a6c;
+            color: white;
+            padding: 1rem 1.5rem;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            z-index: 2000;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .toast.show {
+            opacity: 1;
+        }
+
+        @media (max-width: 768px) {
+            .btn {
+                padding: 0.8rem;
+                font-size: 1rem;
+            }
+            
+            .modal-content {
+                max-width: 95%;
+                padding: 1.2rem;
+            }
+            
+            .calendar-day {
+                padding: 0.8rem 0.3rem;
+                font-size: 0.85rem;
+            }
         }
     </style>
 </head>
 <body>
+
     <header>
         <div class="container">
             <div class="logo">
-                <a href="afiliado.html">
-                    <img src="imagens/logo.webp" alt="Logo Lunara Afiliados">
-                </a>
+                <a href="afiliado.html"><img src="../imagens/logo.webp" alt="Logo Lunara"></a>
             </div>
             <nav>
                 <ul class="nav-links">
@@ -137,114 +315,265 @@
                     <li><a href="#relatorios">Relatórios</a></li>
                     <li><a href="#materiais">Materiais</a></li>
                     <li><a href="#configuracoes">Configurações</a></li>
-                    <li><a href="index.html">Sair</a></li>
+                    <li><a href="../index.html">Sair</a></li>
                 </ul>
-                <div class="hamburger">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                </div>
             </nav>
         </div>
     </header>
 
-    <section class="dashboard-afiliado">
-        <div class="container">
-            <div class="dashboard-header">
-                <div>
-                    <h1>Painel do Afiliado</h1>
-                    <p>Gerencie suas comissões e acompanhe seu desempenho</p>
-                </div>
-                <div class="user-info">
-                    <div class="user-avatar">JS</div>
-                    <div>
-                        <h3>João Silva</h3>
-                        <p>Afiliado desde: Jan/2023</p>
-                    </div>
-                </div>
+    <div class="container">
+        <div class="dashboard-container">
+            <div class="sidebar">
+                <h3>Pacientes</h3>
+                <ul class="patient-list" id="patientList">
+                    <li class="active" data-name="Ana Silva">Ana Silva</li>
+                    <li data-name="Carlos Souza">Carlos Souza</li>
+                    <li data-name="Joana Almeida">Joana Almeida</li>
+                    <li data-name="Lucas Melo">Lucas Melo</li>
+                    <li data-name="Maria Costa">Maria Costa</li>
+                </ul>
+
+                <h3>Terapias</h3>
+                <ul class="therapy-list" id="therapyList">
+                    <li class="active" data-therapy="Sessão de Fisioterapia">Sessão de Fisioterapia</li>
+                    <li data-therapy="Terapia Ocupacional">Terapia Ocupacional</li>
+                </ul>
             </div>
 
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <i class="fas fa-dollar-sign"></i>
-                    <h3>R$ 2.450</h3>
-                    <p>Total de Comissões</p>
+            <div class="calendar">
+                <div class="calendar-header">
+                    <h2 class="calendar-title">Agendamento de Terapeutas</h2>
                 </div>
-                <div class="stat-card">
-                    <i class="fas fa-shopping-cart"></i>
-                    <h3>48</h3>
-                    <p>Vendas Realizadas</p>
-                </div>
-                <div class="stat-card">
-                    <i class="fas fa-users"></i>
-                    <h3>1.250</h3>
-                    <p>Visitantes Únicos</p>
-                </div>
-                <div class="stat-card">
-                    <i class="fas fa-chart-line"></i>
-                    <h3>3.8%</h3>
-                    <p>Taxa de Conversão</p>
-                </div>
-            </div>
 
-            <div class="actions">
-                <a href="#" class="btn-afiliado">
-                    <i class="fas fa-link"></i> Meu Link de Afiliado
-                </a>
-                <a href="#" class="btn-afiliado">
-                    <i class="fas fa-share-alt"></i> Compartilhar
-                </a>
-                <a href="#" class="btn-afiliado">
-                    <i class="fas fa-download"></i> Baixar Relatório
-                </a>
+                <table class="calendar-grid" id="calendar">
+                    <thead>
+                        <tr class="calendar-header-row">
+                            <th>Dom</th>
+                            <th>Seg</th>
+                            <th>Ter</th>
+                            <th>Qua</th>
+                            <th>Qui</th>
+                            <th>Sex</th>
+                            <th>Sáb</th>
+                        </tr>
+                    </thead>
+                    <tbody id="calendarBody">
+                    </tbody>
+                </table>
             </div>
         </div>
-    </section>
+    </div>
 
-    <section class="recent-comissions container">
-        <h2>Comissões Recentes</h2>
-        <table class="comission-table">
-            <thead>
-                <tr>
-                    <th>Data</th>
-                    <th>Produto</th>
-                    <th>Valor</th>
-                    <th>Comissão</th>
-                    <th>Status</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td>23/10/2023</td>
-                    <td>Kit Terapia Completo</td>
-                    <td>R$ 297,00</td>
-                    <td>R$ 89,10</td>
-                    <td><span class="status-badge status-paid">Pago</span></td>
-                </tr>
-                <tr>
-                    <td>22/10/2023</td>
-                    <td>Curso de Meditação</td>
-                    <td>R$ 97,00</td>
-                    <td>R$ 29,10</td>
-                    <td><span class="status-badge status-paid">Pago</span></td>
-                </tr>
-                <tr>
-                    <td>21/10/2023</td>
-                    <td>Consultoria Online</td>
-                    <td>R$ 150,00</td>
-                    <td>R$ 45,00</td>
-                    <td><span class="status-badge status-pending">Pendente</span></td>
-                </tr>
-            </tbody>
-        </table>
-    </section>
-
-    <footer>
-        <div class="container">
-            <p>&copy; 2023 Lunara Afiliados. Todos os direitos reservados.</p>
+    <div id="appointmentModal" class="modal">
+        <div class="modal-content">
+            <h3>Agendar Nova Sessão</h3>
+            <form id="appointmentForm">
+                <div class="form-group">
+                    <label for="patient">Paciente</label>
+                    <input type="text" id="patient" readonly required>
+                </div>
+                <div class="form-group">
+                    <label for="therapy">Terapia</label>
+                    <input type="text" id="therapy" readonly required>
+                </div>
+                <div class="form-group">
+                    <label for="datetime">Data e Hora</label>
+                    <input type="datetime-local" id="datetime" required>
+                </div>
+                <button type="submit" class="btn btn-primary">Confirmar Agendamento</button>
+                <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+            </form>
         </div>
-    </footer>
+    </div>
 
-    <script src="js/script.js"></script>
+    <div id="toast" class="toast">Agendamento salvo com sucesso!</div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+        const supabaseUrl = 'https://gzyrbtrinccwqyeocymh.supabase.co';
+        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd6eXJidHJpbmNjd3F5ZW9jeW1oIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTU2MjgyOTIsImV4cCI6MjA3MTIwNDI5Mn0.rJ_C6t3lE3efsD_kQUoGvViCJodHc9NNGQukX-SPEMM';
+        const supabase = supabase.createClient(supabaseUrl, supabaseKey);
+
+        let selectedDate = null;
+        let selectedPatient = 'Ana Silva';
+        let selectedTherapy = 'Sessão de Fisioterapia';
+
+        window.addEventListener('load', async () => {
+            await loadAppointments();
+            generateCalendar();
+            document.querySelector('#patientList li.active').click();
+            document.querySelector('#therapyList li.active').click();
+        });
+
+        function generateCalendar() {
+            const today = new Date();
+            const month = today.getMonth();
+            const year = today.getFullYear();
+
+            const firstDay = new Date(year, month, 1);
+            const lastDay = new Date(year, month + 1, 0);
+            const startDate = new Date(firstDay);
+            startDate.setDate(firstDay.getDate() - firstDay.getDay());
+
+            const calendarBody = document.getElementById('calendarBody');
+            calendarBody.innerHTML = '';
+            let row = document.createElement('tr');
+
+            let date = new Date(startDate);
+            const appointments = JSON.parse(localStorage.getItem('appointments') || '[]');
+
+            while (date <= lastDay || row.cells.length > 0) {
+                if (row.cells.length === 7) {
+                    calendarBody.appendChild(row);
+                    row = document.createElement('tr');
+                }
+
+                const cell = document.createElement('td');
+                cell.textContent = date.getDate();
+                cell.classList.add('calendar-day');
+
+                if (date.getMonth() !== month) {
+                    cell.style.color = 'rgba(0, 74, 108, 0.3)';
+                    cell.style.cursor = 'default';
+                } else {
+                    const dateString = date.toISOString().split('T')[0];
+                    if (appointments.some(a => a.date === dateString)) {
+                        cell.classList.add('has-appointment');
+                    }
+
+                    cell.addEventListener('click', () => {
+                        document.querySelectorAll('.calendar-day.selected').forEach(d => d.classList.remove('selected'));
+                        cell.classList.add('selected');
+                        selectedDate = new Date(date);
+                        openModal();
+                    });
+                }
+
+                row.appendChild(cell);
+                date.setDate(date.getDate() + 1);
+            }
+
+            if (row.cells.length > 0) {
+                calendarBody.appendChild(row);
+            }
+        }
+
+        async function loadAppointments() {
+            try {
+                const { data, error } = await supabase
+                    .from('appointments')
+                    .select('patient, therapy, datetime');
+
+                if (error) throw error;
+
+                const appointmentsByDate = {};
+                data.forEach(app => {
+                    const date = app.datetime.split('T')[0];
+                    if (!appointmentsByDate[date]) appointmentsByDate[date] = [];
+                    appointmentsByDate[date].push(app);
+                });
+
+                localStorage.setItem('appointments', JSON.stringify(
+                    Object.keys(appointmentsByDate).map(date => ({ date }))
+                ));
+
+                generateCalendar();
+            } catch (error) {
+                console.error('Erro ao carregar agendamentos:', error.message);
+                showToast('Erro ao carregar agendamentos');
+            }
+        }
+
+        function openModal() {
+            document.getElementById('appointmentModal').style.display = 'flex';
+            document.getElementById('patient').value = selectedPatient;
+            document.getElementById('therapy').value = selectedTherapy;
+
+            const year = selectedDate.getFullYear();
+            const month = String(selectedDate.getMonth() + 1).padStart(2, '0');
+            const day = String(selectedDate.getDate()).padStart(2, '0');
+            document.getElementById('datetime').value = `${year}-${month}-${day}T09:00`;
+        }
+
+        function closeModal() {
+            document.getElementById('appointmentModal').style.display = 'none';
+        }
+
+        document.getElementById('appointmentForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const datetime = document.getElementById('datetime').value;
+
+            if (!selectedDate) {
+                showToast('Por favor, selecione uma data no calendário');
+                return;
+            }
+
+            try {
+                const { error } = await supabase
+                    .from('appointments')
+                    .insert([{
+                        patient: selectedPatient,
+                        therapy: selectedTherapy,
+                        datetime: datetime
+                    }]);
+
+                if (error) throw error;
+
+                showToast('Agendamento salvo com sucesso!');
+                closeModal();
+                await loadAppointments();
+            } catch (error) {
+                console.error('Erro ao salvar:', error.message);
+                showToast('Erro ao salvar agendamento');
+            }
+        });
+
+        document.querySelectorAll('#patientList li').forEach(li => {
+            li.addEventListener('click', () => {
+                document.querySelectorAll('#patientList li').forEach(l => l.classList.remove('active'));
+                li.classList.add('active');
+                selectedPatient = li.getAttribute('data-name');
+            });
+        });
+
+        document.querySelectorAll('#therapyList li').forEach(li => {
+            li.addEventListener('click', () => {
+                document.querySelectorAll('#therapyList li').forEach(l => l.classList.remove('active'));
+                li.classList.add('active');
+                selectedTherapy = li.getAttribute('data-therapy');
+            });
+        });
+
+        window.addEventListener('click', (e) => {
+            const modal = document.getElementById('appointmentModal');
+            if (e.target === modal) {
+                closeModal();
+            }
+        });
+
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.classList.add('show');
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3000);
+        }
+
+        document.addEventListener('touchstart', function(event) {
+            if (event.touches.length > 1) {
+                event.preventDefault();
+            }
+        }, { passive: false });
+
+        let lastTouchEnd = 0;
+        document.addEventListener('touchend', function(event) {
+            const now = Date.now();
+            if (now - lastTouchEnd <= 300) {
+                event.preventDefault();
+            }
+            lastTouchEnd = now;
+        }, false);
+    </script>
 </body>
 </html>
