@@ -1,21 +1,41 @@
 {
   "name": "Lunara Afiliados",
   "short_name": "Lunara",
-  "description": "Painel de afiliados da Lunara",
+  "description": "Painel de afiliados para agendamento, relatórios e gestão de terapias",
   "start_url": "/pages/DashboardPage",
   "display": "standalone",
   "background_color": "#e6f7f0",
   "theme_color": "#004a6c",
+  "orientation": "portrait",
+  "scope": "/",
   "icons": [
     {
       "src": "/imagens/logo.webp",
       "sizes": "192x192",
-      "type": "image/webp"
+      "type": "image/webp",
+      "purpose": "any"
     },
     {
       "src": "/imagens/logo.webp",
       "sizes": "512x512",
-      "type": "image/webp"
+      "type": "image/webp",
+      "purpose": "any"
     }
-  ]
+  ],
+  "shortcuts": [
+    {
+      "name": "Meu Painel",
+      "short_name": "Painel",
+      "url": "/pages/DashboardPage",
+      "icons": [{ "src": "/imagens/logo.webp", "sizes": "192x192" }]
+    },
+    {
+      "name": "Agendamentos",
+      "short_name": "Agenda",
+      "url": "/pages/AgendaPage",
+      "icons": [{ "src": "/imagens/logo.webp", "sizes": "192x192" }]
+    }
+  ],
+  "categories": ["productivity", "health", "business"],
+  "lang": "pt-BR"
 }
