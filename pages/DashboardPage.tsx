@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+// pages/DashboardPage.tsx
+import { useEffect, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { createClient } from '@supabase/supabase-js';
@@ -9,14 +10,16 @@ const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 const DashboardPage = () => {
+  const [session, setSession] = useState<any>(null);
+  const [user, setUser] = useState<any>(null);
   const [appointments, setAppointments] = useState<any[]>([]);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState('');
 
-  // Dados do afiliado
-  const [user] = useState({ name: 'João Silva', since: 'Jan/2023' });
+  // Dados do afiliado (vem do Supabase auth)
+  const [afiliado] = useState({ name: 'João Silva', since: 'Jan/2023', email: 'joao@exemplo.com' });
 
   // Pacientes e terapias
   const pacientes = ['Ana Silva', 'Carlos Souza', 'Joana Almeida', 'Lucas Melo', 'Maria Costa'];
@@ -28,16 +31,44 @@ const DashboardPage = () => {
     datetime: ''
   });
 
-  // Carregar agendamentos ao iniciar
+  // Verifica sessão ao carregar
   useEffect(() => {
-    loadAppointments();
+    supabase.auth.getSession().then(({  { session } }) => {
+      if (session) {
+        setSession(session);
+        setUser(session.user);
+        loadAppointments(session.user);
+      } else {
+        // Não faz nada, o render já redireciona
+      }
+    });
+
+    const {  authListener } = supabase.auth.onAuthStateChange(
+      (event, newSession) => {
+        if (newSession) {
+          setSession(newSession);
+          setUser(newSession.user);
+          loadAppointments(newSession.user);
+        } else {
+          setSession(null);
+          setUser(null);
+          setAppointments([]);
+        }
+      }
+    );
+
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
   }, []);
 
-  const loadAppointments = async () => {
+  // Carregar agendamentos do afiliado
+  const loadAppointments = async (user: any) => {
     try {
       const { data, error } = await supabase
         .from('appointments')
         .select('*')
+        .eq('afiliado_id', user.id) // Filtra por afiliado
         .order('datetime', { ascending: true });
 
       if (error) throw error;
@@ -66,20 +97,21 @@ const DashboardPage = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedDate) return;
+    if (!selectedDate || !user) return;
 
     try {
       const { error } = await supabase.from('appointments').insert([{
         patient: form.patient,
         therapy: form.therapy,
-        datetime: form.datetime
+        datetime: form.datetime,
+        afiliado_id: user.id // Salva o ID do afiliado
       }]);
 
       if (error) throw error;
 
       showToast('Agendamento salvo com sucesso!');
       closeModal();
-      loadAppointments(); // Recarregar
+      loadAppointments(user); // Recarregar
     } catch (error: any) {
       showToast('Erro ao salvar agendamento');
       console.error(error);
@@ -156,11 +188,150 @@ const DashboardPage = () => {
     return rows;
   };
 
+  // Tela de login (se não estiver logado)
+  if (!session) {
+    return (
+      <div style={{ backgroundColor: '#e6f7f0', minHeight: '100vh', padding: '2rem' }}>
+        <Head>
+          <title>Login - Lunara Afiliados</title>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+          <link rel="manifest" href="/manifest.json" />
+          <meta name="theme-color" content="#004a6c" />
+        </Head>
+
+        <div style={{
+          maxWidth: '400px',
+          margin: '4rem auto',
+          padding: '2rem',
+          background: 'white',
+          borderRadius: '15px',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.1)',
+          textAlign: 'center'
+        }}>
+          <div style={{ marginBottom: '1.5rem' }}>
+            <img src="/imagens/logo.webp" alt="Logo Lunara" style={{ height: '50px' }} />
+          </div>
+          <h2 style={{ color: '#004a6c', marginBottom: '1.5rem' }}>Acesso ao Painel</h2>
+          
+          <form onSubmit={async (e) => {
+            e.preventDefault();
+            const email = (e.target as any).email.value;
+            const password = (e.target as any).password.value;
+            
+            try {
+              const { error } = await supabase.auth.signInWithPassword({ email, password });
+              if (error) throw error;
+            } catch (error: any) {
+              alert('Erro: ' + error.message);
+            }
+          }}>
+            <div style={{ marginBottom: '1rem', textAlign: 'left' }}>
+              <label style={{
+                display: 'block',
+                marginBottom: '0.5rem',
+                color: '#004a6c',
+                fontSize: '0.9rem'
+              }}>E-mail</label>
+              <input
+                name="email"
+                type="email"
+                required
+                style={{
+                  width: '100%',
+                  padding: '0.75rem',
+                  border: '1px solid rgba(0,74,108,0.3)',
+                  borderRadius: '6px',
+                  fontSize: '1rem'
+                }}
+              />
+            </div>
+            <div style={{ marginBottom: '1.5rem', textAlign: 'left' }}>
+              <label style={{
+                display: 'block',
+                marginBottom: '0.5rem',
+                color: '#004a6c',
+                fontSize: '0.9rem'
+              }}>Senha</label>
+              <input
+                name="password"
+                type="password"
+                required
+                style={{
+                  width: '100%',
+                  padding: '0.75rem',
+                  border: '1px solid rgba(0,74,108,0.3)',
+                  borderRadius: '6px',
+                  fontSize: '1rem'
+                }}
+              />
+            </div>
+            <button
+              type="submit"
+              style={{
+                width: '100%',
+                background: '#004a6c',
+                color: 'white',
+                border: 'none',
+                padding: '0.75rem',
+                borderRadius: '6px',
+                fontSize: '1rem',
+                fontWeight: 'bold',
+                cursor: 'pointer'
+              }}
+            >
+              Entrar
+            </button>
+          </form>
+
+          <div style={{ marginTop: '1rem' }}>
+            <button
+              onClick={async () => {
+                const email = prompt('Digite seu e-mail:');
+                if (!email) return;
+                const { error } = await supabase.auth.signUp({
+                  email,
+                  password: 'temp1234' // Em produção, peça senha
+                });
+                if (error) {
+                  alert('Erro: ' + error.message);
+                } else {
+                  alert('Cadastro criado! Verifique seu e-mail.');
+                }
+              }}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#004a6c',
+                cursor: 'pointer',
+                fontSize: '0.9rem'
+              }}
+            >
+              Não tem conta? Cadastre-se
+            </button>
+          </div>
+
+          <Link href="/index.html" style={{
+            display: 'block',
+            marginTop: '1rem',
+            color: '#004a6c',
+            fontSize: '0.9rem'
+          }}>
+            ← Voltar para o site
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // Painel principal (se estiver logado)
   return (
     <>
       <Head>
         <title>Painel do Afiliado - Lunara</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <link rel="manifest" href="/manifest.json" />
+        <meta name="theme-color" content="#004a6c" />
+        <link rel="icon" href="/imagens/logo.webp" type="image/webp" />
       </Head>
 
       <div style={{ backgroundColor: '#e6f7f0', minHeight: '100vh' }}>
@@ -203,7 +374,19 @@ const DashboardPage = () => {
                 <li><a href="#relatorios" style={{ color: '#004a6c', padding: '0.5rem 0.8rem', borderRadius: '8px' }}>Relatórios</a></li>
                 <li><a href="#materiais" style={{ color: '#004a6c', padding: '0.5rem 0.8rem', borderRadius: '8px' }}>Materiais</a></li>
                 <li><a href="#configuracoes" style={{ color: '#004a6c', padding: '0.5rem 0.8rem', borderRadius: '8px' }}>Configurações</a></li>
-                <li><a href="/index.html" style={{ color: '#004a6c', padding: '0.5rem 0.8rem', borderRadius: '8px' }}>Sair</a></li>
+                <li><button
+                  onClick={() => supabase.auth.signOut()}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#004a6c',
+                    padding: '0.5rem 0.8rem',
+                    borderRadius: '8px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Sair
+                </button></li>
               </ul>
             </nav>
           </div>
@@ -250,11 +433,11 @@ const DashboardPage = () => {
                   fontWeight: 'bold',
                   fontSize: '1.5rem'
                 }}>
-                  {user.name.split(' ').map(n => n[0]).join('')}
+                  {user.email.charAt(0).toUpperCase()}
                 </div>
                 <div>
-                  <h3 style={{ margin: 0 }}>{user.name}</h3>
-                  <p style={{ margin: 0, opacity: 0.8 }}>Afiliado desde: {user.since}</p>
+                  <h3 style={{ margin: 0 }}>{user.email}</h3>
+                  <p style={{ margin: 0, opacity: 0.8 }}>Afiliado desde: {afiliado.since}</p>
                 </div>
               </div>
             </div>
@@ -413,135 +596,4 @@ const DashboardPage = () => {
                   <th style={{
                     padding: '1rem',
                     textAlign: 'left',
-                    borderBottom: '1px solid rgba(0,74,108,0.1)',
-                    background: '#f0f9f8',
-                    color: '#004a6c',
-                    fontWeight: '600'
-                  }}>Valor</th>
-                  <th style={{
-                    padding: '1rem',
-                    textAlign: 'left',
-                    borderBottom: '1px solid rgba(0,74,108,0.1)',
-                    background: '#f0f9f8',
-                    color: '#004a6c',
-                    fontWeight: '600'
-                  }}>Comissão</th>
-                  <th style={{
-                    padding: '1rem',
-                    textAlign: 'left',
-                    borderBottom: '1px solid rgba(0,74,108,0.1)',
-                    background: '#f0f9f8',
-                    color: '#004a6c',
-                    fontWeight: '600'
-                  }}>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td style={{ padding: '1rem', borderBottom: '1px solid rgba(0,74,108,0.1)' }}>23/10/2023</td>
-                  <td style={{ padding: '1rem', borderBottom: '1px solid rgba(0,74,108,0.1)' }}>Kit Terapia Completo</td>
-                  <td style={{ padding: '1rem', borderBottom: '1px solid rgba(0,74,108,0.1)' }}>R$ 297,00</td>
-                  <td style={{ padding: '1rem', borderBottom: '1px solid rgba(0,74,108,0.1)' }}>R$ 89,10</td>
-                  <td style={{ padding: '1rem', borderBottom: '1px solid rgba(0,74,108,0.1)' }}>
-                    <span style={{
-                      display: 'inline-block',
-                      padding: '0.3rem 0.8rem',
-                      borderRadius: '20px',
-                      fontSize: '0.8rem',
-                      fontWeight: 'bold',
-                      background: 'rgba(33,150,83,0.15)',
-                      color: '#2e7d32',
-                      border: '1px solid rgba(33,150,83,0.3)'
-                    }}>Pago</span>
-                  </td>
-                </tr>
-                <tr>
-                  <td style={{ padding: '1rem', borderBottom: '1px solid rgba(0,74,108,0.1)' }}>22/10/2023</td>
-                  <td style={{ padding: '1rem', borderBottom: '1px solid rgba(0,74,108,0.1)' }}>Curso de Meditação</td>
-                  <td style={{ padding: '1rem', borderBottom: '1px solid rgba(0,74,108,0.1)' }}>R$ 97,00</td>
-                  <td style={{ padding: '1rem', borderBottom: '1px solid rgba(0,74,108,0.1)' }}>R$ 29,10</td>
-                  <td style={{ padding: '1rem', borderBottom: '1px solid rgba(0,74,108,0.1)' }}>
-                    <span style={{
-                      display: 'inline-block',
-                      padding: '0.3rem 0.8rem',
-                      borderRadius: '20px',
-                      fontSize: '0.8rem',
-                      fontWeight: 'bold',
-                      background: 'rgba(33,150,83,0.15)',
-                      color: '#2e7d32',
-                      border: '1px solid rgba(33,150,83,0.3)'
-                    }}>Pago</span>
-                  </td>
-                </tr>
-                <tr>
-                  <td style={{ padding: '1rem', borderBottom: '1px solid rgba(0,74,108,0.1)' }}>21/10/2023</td>
-                  <td style={{ padding: '1rem', borderBottom: '1px solid rgba(0,74,108,0.1)' }}>Consultoria Online</td>
-                  <td style={{ padding: '1rem', borderBottom: '1px solid rgba(0,74,108,0.1)' }}>R$ 150,00</td>
-                  <td style={{ padding: '1rem', borderBottom: '1px solid rgba(0,74,108,0.1)' }}>R$ 45,00</td>
-                  <td style={{ padding: '1rem', borderBottom: '1px solid rgba(0,74,108,0.1)' }}>
-                    <span style={{
-                      display: 'inline-block',
-                      padding: '0.3rem 0.8rem',
-                      borderRadius: '20px',
-                      fontSize: '0.8rem',
-                      fontWeight: 'bold',
-                      background: 'rgba(255,193,7,0.15)',
-                      color: '#f57f17',
-                      border: '1px solid rgba(255,193,7,0.3)'
-                    }}>Pendente</span>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </section>
-        </div>
-
-        {/* Modal de Agendamento */}
-        {showModal && (
-          <div style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: '100%',
-            background: 'rgba(0,0,0,0.5)',
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            zIndex: 1000,
-            padding: '1rem'
-          }}>
-            <div style={{
-              background: 'white',
-              borderRadius: '12px',
-              width: '100%',
-              maxWidth: '400px',
-              padding: '1.5rem',
-              boxShadow: '0 10px 30px rgba(0,0,0,0.2)'
-            }}>
-              <h3 style={{ color: '#004a6c', marginBottom: '1rem' }}>Agendar Nova Sessão</h3>
-              <form onSubmit={handleSubmit}>
-                <div style={{ marginBottom: '1rem' }}>
-                  <label style={{
-                    display: 'block',
-                    marginBottom: '0.5rem',
-                    color: '#004a6c',
-                    fontSize: '0.95rem'
-                  }}>Paciente</label>
-                  <select
-                    value={form.patient}
-                    onChange={e => setForm({ ...form, patient: e.target.value })}
-                    style={{
-                      width: '100%',
-                      padding: '0.75rem',
-                      border: '1px solid rgba(0,74,108,0.1)',
-                      borderRadius: '6px'
-                    }}
-                  >
-                    {pacientes.map(p => (
-                      <option key={p} value={p}>{p}</option>
-                    ))}
-                  </select>
-                </div>
-                <div style={{ marginBottom: '1rem' }}>
-       
+                    borderBottom: '1px soli
